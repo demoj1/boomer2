@@ -4,9 +4,10 @@ CXX=clang++
 STD=-std=c++2b
 WARNINGS=-Wno-unused-command-line-argument -Wall -Wextra -Wpedantic
 SANITIZERS=-fsanitize=address -fsanitize=undefined -fno-sanitize-recover=all -fsanitize=float-divide-by-zero -fsanitize=float-cast-overflow -fno-sanitize=null -fno-sanitize=alignment
+# SANITIZERS=-fsanitize=undefined -fno-sanitize-recover=all -fsanitize=float-divide-by-zero -fsanitize=float-cast-overflow -fno-sanitize=null -fno-sanitize=alignment
 LIBS=-lX11 -lraylib
-CXXFLAGS=$(STD) $(WARNINGS) -march=native -Ofast $(LIBS)
-CMD=$(CXX) $(CXXFLAGS)
+CXXFLAGS=$(WARNINGS) -march=native -O3
+CMD=$(CXX) $(STD) $(CXXFLAGS) $(LIBS)
 
 OBJ_PREFIX=objs
 
@@ -22,7 +23,7 @@ run: exe
 install: exe
 	cp $(OUT) ~/.local/bin/$(OUT_NAME)
 
-debug: CXXFLAGS=$(STD) $(WARNINGS) -g $(SANITIZERS) -DDEBUG $(LIBS)
+debug: CXXFLAGS=$(WARNINGS) -g $(SANITIZERS) -DDEBUG
 debug: OUT_POSTFIX=debug
 debug: cleanup exe
 	rm -rf objs/*
@@ -32,6 +33,6 @@ cleanup:
 	rm -rf ./$(OBJ_PREFIX)/*
 
 exe: $(OBJECTS) Makefile
-	clang++ -c src/screenshot.cpp -o $(OBJ_PREFIX)/screenshot.o
-	clang++ -c src/main.cpp -o $(OBJ_PREFIX)/main.o
-	$(CMD) objs/main.o objs/screenshot.o -o $(OUT)
+	$(CXX) $(STD) $(CXXFLAGS) -c src/screenshot.cpp -o $(OBJ_PREFIX)/screenshot.o
+	$(CXX) $(STD) $(CXXFLAGS) -c src/main.cpp -o $(OBJ_PREFIX)/main.o
+	$(CMD) $(CXXFLAGS) objs/main.o objs/screenshot.o -o $(OUT)

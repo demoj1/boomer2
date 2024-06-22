@@ -6,23 +6,32 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
-std::pair<uint, uint>
-get_screen_size()
-{
-  Display* display = XOpenDisplay(NULL);
-  uint screen = DefaultScreen(display);
-
-  return { (uint)DisplayWidth(display, screen), (uint)DisplayHeight(display, screen) };
+void raise_window(uint* handle) {
+  auto display = XOpenDisplay(NULL);
+  XRaiseWindow(display, *handle);
+  XCloseDisplay(display);
 }
 
-u_char*
-take_screenshot(
-  std::pair<uint, uint> display_size)
+std::pair<uint, uint> get_screen_size()
 {
-  Display* display = XOpenDisplay(NULL);
+  auto display = XOpenDisplay(NULL);
+  auto screen = DefaultScreen(display);
+
+  std::pair<uint, uint> pair = {
+    (uint)DisplayWidth(display, screen),
+    (uint)DisplayHeight(display, screen)
+  };
+
+  XCloseDisplay(display);
+
+  return pair;
+}
+
+u_char* take_screenshot(std::pair<uint, uint> display_size)
+{
+  auto display = XOpenDisplay(NULL);
 
   uint screen = DefaultScreen(display);
-  uint pixels = display_size.first * display_size.second;
 
   XImage* image = XGetImage(display,
                             RootWindow(display, screen),
@@ -35,7 +44,7 @@ take_screenshot(
 
   uint bytes = display_size.first * display_size.second * 3;
 
-  u_char* data = (u_char*)malloc(bytes);
+  u_char* data = new u_char[bytes];
 
   ulong rmask = image->red_mask;
   ulong gmask = image->green_mask;
