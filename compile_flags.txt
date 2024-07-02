@@ -1,0 +1,5 @@
+-std=c++2b
+-lX11
+-lraylib
+-march=native
+-O3

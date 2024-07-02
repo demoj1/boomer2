@@ -1,0 +1,3 @@
+leak:__interceptor_realloc.part.0
+leak:__interceptor_calloc
+leak:InitWindow

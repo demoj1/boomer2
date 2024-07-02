@@ -12,7 +12,8 @@
 #include <sys/types.h>
 #include <thread>
 
-#include "./screenshot.h"
+#include "font.h"
+#include "screenshot.h"
 
 //+Macros
 static int __COUNTER = -1;
@@ -25,12 +26,17 @@ static int __COUNTER = -1;
 #else
   #define LOG(__format_string, ...) {}
 #endif
+
+#define FF "(%06.1f; %06.1f)"
+#define F(v) v.x, v.y
 //-Macros
 
 //+Extends default
 inline bool operator==(Vector2 l, Vector2 r) { return l.x == r.x && l.y == r.y; }
 inline Vector2 operator-(Vector2 l, Vector2 r) { return Vector2Subtract(l, r); }
+inline Vector2 operator-(Vector2 l, float r) { return Vector2SubtractValue(l, r); }
 inline Vector2 operator+(Vector2 l, Vector2 r) { return Vector2Add(l, r); }
+inline Vector2 operator+(Vector2 l, float r) { return Vector2AddValue(l, r); }
 
 Rectangle rect_from_vectors(Vector2 first_point, Vector2 second_point) {
   return Rectangle {
@@ -44,10 +50,12 @@ Rectangle rect_from_vectors(Vector2 first_point, Vector2 second_point) {
 
 using namespace std;
 
+static Font font;
 
-enum Flags {
-  DRAW_CROSSHAIR = 1,
+enum Tools {
+  CROSSHAIR = 1,
 };
+static int count_tools = 1;
 
 struct State {
   std::pair<uint, uint> screen_size;
@@ -63,11 +71,11 @@ struct State {
 
   bool select_area_in_progress = false;
 
-  int flags;
+  int tools;
 
-  inline State* set_flag(Flags flag) { this->flags &= flag; return this; }
-  inline bool toggle_flag(Flags flag) { this->flags = !(this->flags & flag); return this->flags & flag; }
-  inline bool check_flag(Flags flag) { return this->flags & flag; }
+  inline State* active_tools(Tools tool) { this->tools &= tool; return this; }
+  inline bool toggle_tools(Tools tool) { this->tools = !(this->tools & tool); return this->tools & tool; }
+  inline bool check_tools(Tools tool) { return this->tools & tool; }
 
   inline uint swidth() { return this->screen_size.first; }
   inline uint sheight() { return this->screen_size.second; }
@@ -171,6 +179,103 @@ struct State {
 
     return this;
   }
+
+  State* draw_tool_pallete() {
+    // if (!tools) return this;
+
+    // int tools_count = __builtin_popcount(tools);
+
+    for (int i = 0; i < count_tools; i++) {
+      DrawCircleGradient(400 + 50*i, 400, 40, {230, 230, 230, 255}, WHITE);
+
+      switch (tools & (int)pow(2.0, (float)i)) {
+      case 1:
+        DrawText("CR", 400 + 50*i - 40/2, 400 - 40/2, 36, BLACK);
+        break;
+      }
+    }
+
+    return this;
+  }
+
+  State* draw_debug_line() {
+    static char* debug_buffer = (char*)malloc(2048);
+
+    auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+    auto selection_pos = texture_pos - *first_point;
+
+    sprintf(debug_buffer,
+      "Mouse: " FF ", "
+      "Mouse to texture: " FF ", "
+      "Mouse into selection: " FF ", "
+      "FPS: %d",
+      F(GetMousePosition()),
+      F(texture_pos),
+      F(selection_pos),
+      GetFPS()
+    );
+
+    DrawRectangle(0, 0, swidth(), 40, {40, 40, 40, 150});
+    DrawTextEx(font, debug_buffer, {5, 5}, 32, 1, GREEN);
+
+    return this;
+  }
+
+  Image render_screenshot_and_close() {
+    LOG("Begin load image from texture\n");
+
+    auto screen_first_point = min_point.value_or(Vector2{ 0, 0 });
+    auto screen_second_point = max_point.value_or(Vector2{
+      static_cast<float>(swidth()),
+      static_cast<float>(sheight())
+    });
+
+    if (screen_first_point == screen_second_point) {
+      screen_first_point = {0, 0};
+      screen_second_point = {
+        static_cast<float>(swidth()),
+        static_cast<float>(sheight())
+      };
+    }
+
+    auto width = screen_second_point.x - screen_first_point.x;
+    auto height = screen_second_point.y - screen_first_point.y;
+
+    auto render_screenshot_texture = LoadRenderTexture(screen_second_point.x - screen_first_point.x, screen_second_point.y - screen_first_point.y);
+
+    // Render all objects into texture
+    BeginDrawing();
+      BeginTextureMode(render_screenshot_texture);
+        DrawTextureRec(screenshot_texture, {
+          screen_first_point.x,
+          screen_first_point.y,
+          width,
+          -height,
+        }, {0, 0}, {255, 255, 255, 255});
+
+          if (check_tools(Tools::CROSSHAIR)) {
+            auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+            auto selection_pos = texture_pos - *min_point;
+
+            DrawLineEx(
+              { 0,     height - selection_pos.y },
+              { width, height - selection_pos.y },
+              2,
+              MAGENTA
+            );
+
+            DrawLineEx(
+              { selection_pos.x, 0},
+              { selection_pos.x, height },
+              2,
+              MAGENTA
+            );
+          }
+      EndTextureMode();
+    EndDrawing();
+
+    return LoadImageFromTexture(render_screenshot_texture.texture);;
+  }
 };
 static State* state = new State{};
 
@@ -178,9 +283,10 @@ static State* state = new State{};
 int main() {
   state->screen_size = get_screen_size();
   auto thread = std::thread([]() { state->screenshot_data = take_screenshot(state->screen_size); });
+  std::thread export_thread;
 
-  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-  SetTargetFPS(100);
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
+  SetTargetFPS(80);
 
   #ifndef DEBUG
   SetTraceLogLevel(LOG_ERROR);
@@ -189,6 +295,10 @@ int main() {
   InitWindow(state->swidth(), state->sheight(), "_");
   SetWindowFocused();
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
+
+  #ifdef DEBUG
+  font = LoadFont_Terminus();
+  #endif
 
   thread.join();
 
@@ -204,11 +314,6 @@ int main() {
   state->camera.zoom = 1.0;
 
   Vector2 prevMousePos = GetMousePosition();
-
-  // GLFWwindow* window_handle = (GLFWwindow*)GetWindowHandle();
-  // LOG("Window handle: %u\n", *window_handle);
-
-  // glfwFocusWindow(window_handle);
 
   SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
   while (!WindowShouldClose()) {
@@ -231,49 +336,45 @@ int main() {
     Vector2 delta = prevMousePos - thisPos;
     prevMousePos = thisPos;
 
-    if (IsMouseButtonDown(0)) state->camera.target = GetScreenToWorld2D(state->camera.offset + delta, state->camera);
+    if (IsMouseButtonDown(0)) {
+      SetMouseCursor(MOUSE_CURSOR_RESIZE_ALL);
+      state->camera.target = GetScreenToWorld2D(state->camera.offset + delta, state->camera);
+    }
 
-    if (IsKeyPressed(KEY_F)) state->toggle_flag(Flags::DRAW_CROSSHAIR);
+    if (IsMouseButtonUp(0)) SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
+
+    if (IsKeyPressed(KEY_R)) {
+      // auto w = GetScreenWidth();
+      // auto h = GetScreenHeight();
+      // SetWindowSize(0, 0);
+      // state->screenshot_data = take_screenshot(state->screen_size);
+      // state->screenshot_texture = LoadTextureFromImage((Image){
+      //     .data = state->screenshot_data,
+      //     .width = (int)state->swidth(),
+      //     .height = (int)state->sheight(),
+      //     .mipmaps = 1,
+      //     .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
+      // });
+      // SetWindowSize(w, h);
+    }
+
+    if (IsKeyPressed(KEY_F)) state->toggle_tools(Tools::CROSSHAIR);
 
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_C)) {
-      LOG("Begin load image from texture\n");
+      auto image = state->render_screenshot_and_close();
 
-      Image image = LoadImageFromTexture(state->screenshot_texture);
+      export_thread = std::thread([image]() {
+        if (ExportImage(image, "/tmp/__out_image.png")) {
+          if (system("xclip -selection clipboard -t image/png -i /tmp/__out_image.png") != 0) {
+            LOG("xclip failed");
+            assert(false);
+          }
 
-      LOG("Image loaded from texture, size: (%d, %d)\n", image.width, image.height);
-
-      if (state->min_point.has_value() && state->max_point.has_value()) {
-        auto screen_first_point = *state->min_point;
-        auto screen_second_point = *state->max_point;
-
-        LOG("Crop image (%f, %f) : (%f, %f), size area (%f, %f)\n",
-          screen_first_point.x,
-          screen_first_point.y,
-          screen_second_point.x,
-          screen_second_point.y,
-          screen_second_point.x - screen_first_point.x,
-          screen_second_point.y - screen_first_point.y
-        );
-
-        ImageCrop(&image, (Rectangle){
-          screen_first_point.x,
-          screen_first_point.y,
-          screen_second_point.x - screen_first_point.x,
-          screen_second_point.y - screen_first_point.y,
-        });
-
-        LOG("Image size after cropping: (%d, %d)\n", image.width, image.height);
-      }
-
-      if (ExportImage(image, "/tmp/__out_image.png")) {
-        if (system("xclip -selection clipboard -t image/png -i /tmp/__out_image.png") != 0) {
-          LOG("xclip failed");
-          assert(false);
+          UnloadImage(image);
         }
+      });
 
-        UnloadImage(image);
-        goto close;
-      }
+      goto close;
     }
 
     BeginDrawing();
@@ -296,18 +397,24 @@ int main() {
         state->draw_selection_box();
       EndMode2D();
 
-      if (state->check_flag(Flags::DRAW_CROSSHAIR)) {
+      #ifdef DEBUG
+      state->draw_debug_line();
+      #endif
+
+      // state->draw_tool_pallete();
+
+      if (state->check_tools(Tools::CROSSHAIR)) {
         DrawLineEx(
-          {0, thisPos.y},
+          { 0,                                      thisPos.y },
           { (float)state->screenshot_texture.width, thisPos.y},
           2,
-          IsKeyDown(KEY_LEFT_SHIFT) ? BLUE : MAGENTA
+          MAGENTA
         );
         DrawLineEx(
-          {thisPos.x, 0},
+          { thisPos.x, 0 },
           { thisPos.x, (float)state->screenshot_texture.height},
           2,
-          IsKeyDown(KEY_LEFT_SHIFT) ? BLUE : MAGENTA
+          MAGENTA
         );
       }
     EndDrawing();
@@ -317,4 +424,5 @@ close:
   UnloadTexture(state->screenshot_texture);
   delete[] state->screenshot_data;
   CloseWindow();
+  export_thread.join();
 }
