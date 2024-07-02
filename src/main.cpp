@@ -199,7 +199,7 @@ struct State {
   }
 
   State* draw_debug_line() {
-    static char* debug_buffer = (char*)malloc(2048);
+    static char debug_buffer[2048];
 
     auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
     auto selection_pos = texture_pos - *first_point;
@@ -277,30 +277,30 @@ struct State {
     return LoadImageFromTexture(render_screenshot_texture.texture);;
   }
 };
-static State* state = new State{};
 
+static State* state = new State{};
 
 int main() {
   state->screen_size = get_screen_size();
-  auto thread = std::thread([]() { state->screenshot_data = take_screenshot(state->screen_size); });
+  auto load_screenshot_thread = std::thread([]() { state->screenshot_data = take_screenshot(state->screen_size); });
   std::thread export_thread;
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
   SetTargetFPS(80);
 
-  #ifndef DEBUG
+#ifndef DEBUG
   SetTraceLogLevel(LOG_ERROR);
-  #endif
+#endif
 
   InitWindow(state->swidth(), state->sheight(), "_");
   SetWindowFocused();
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
 
-  #ifdef DEBUG
+#ifdef DEBUG
   font = LoadFont_Terminus();
-  #endif
+#endif
 
-  thread.join();
+  load_screenshot_thread.join();
 
   state->screenshot_texture = LoadTextureFromImage((Image){
       .data = state->screenshot_data,
@@ -317,9 +317,8 @@ int main() {
 
   SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
   while (!WindowShouldClose()) {
-    Vector2 thisPos = GetMousePosition();
-
-    float wheel = GetMouseWheelMove();
+    auto thisPos = GetMousePosition();
+    auto wheel   = GetMouseWheelMove();
 
     if (wheel != 0) {
       Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), state->camera);
@@ -424,5 +423,5 @@ close:
   UnloadTexture(state->screenshot_texture);
   delete[] state->screenshot_data;
   CloseWindow();
-  export_thread.join();
+  if (export_thread.joinable()) export_thread.join();
 }
