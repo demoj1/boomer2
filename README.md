@@ -5,6 +5,6 @@ Mouse wheel for zoom in/out
 Right mouse for select screenshot area  
 Enter or C to save area into clipboard  
 
-https://github.com/demoj1/boomer2/assets/10886027/27cb65f2-b362-4ea5-bf27-adc3c1552c5f
+https://github.com/demoj1/boomer2/assets/10886027/5d88c5db-b4a9-40b4-82a8-d13bff58a736
 
 Idea take from https://github.com/tsoding/boomer
