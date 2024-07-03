@@ -61,7 +61,7 @@ struct State {
   std::pair<uint, uint> screen_size;
   u_char* screenshot_data;
   Texture2D screenshot_texture;
-  Camera2D camera;
+  Camera2D camera = {};
 
   std::optional<Vector2> first_point = nullopt;
   std::optional<Vector2> second_point = nullopt;
@@ -310,7 +310,6 @@ int main() {
       .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
   });
 
-  state->camera = {0};
   state->camera.zoom = 1.0;
 
   Vector2 prevMousePos = GetMousePosition();
