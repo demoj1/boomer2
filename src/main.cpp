@@ -11,6 +11,7 @@
 #include <rlgl.h>
 #include <sys/types.h>
 #include <thread>
+#include <vector>
 
 #include "font.h"
 #include "screenshot.h"
@@ -37,8 +38,14 @@ inline Vector2 operator-(Vector2 l, Vector2 r) { return Vector2Subtract(l, r); }
 inline Vector2 operator-(Vector2 l, float r) { return Vector2SubtractValue(l, r); }
 inline Vector2 operator+(Vector2 l, Vector2 r) { return Vector2Add(l, r); }
 inline Vector2 operator+(Vector2 l, float r) { return Vector2AddValue(l, r); }
+inline Vector2* round(Vector2* l) {
+  l->x = round(l->x);
+  l->y = round(l->y);
 
-Rectangle rect_from_vectors(Vector2 first_point, Vector2 second_point) {
+  return l;
+}
+
+Rectangle rect_from_vectors(Vector2 first_point, Vector2 second_point) noexcept {
   return Rectangle {
       first_point.x,
       first_point.y,
@@ -72,6 +79,8 @@ struct State {
   bool select_area_in_progress = false;
 
   int tools;
+
+  std::vector<Vector2> crosshairs = {};
 
   inline State* active_tools(Tools tool) { this->tools &= tool; return this; }
   inline bool toggle_tools(Tools tool) { this->tools = !(this->tools & tool); return this->tools & tool; }
@@ -115,8 +124,7 @@ struct State {
     assert(neighboring);
 
     if ((*target) == p) return this;
-    p.x = round(p.x);
-    p.y = round(p.y);
+    round(&p);
 
     if (!(*neighboring).has_value()) {
       (*target) = p;
@@ -221,6 +229,45 @@ struct State {
     return this;
   }
 
+  State* draw_crosshairs() {
+    if (!check_tools(Tools::CROSSHAIR)) return this;
+
+    for (auto& c : crosshairs) {
+      DrawLineEx(
+        { 0, c.y },
+        { (float)screenshot_texture.width, c.y},
+        2.5/ camera.zoom,
+        MAGENTA
+      );
+
+      DrawLineEx(
+        { c.x, 0 },
+        { c.x, (float)screenshot_texture.height},
+        2.5/ camera.zoom,
+        MAGENTA
+      );
+    }
+
+    return this;
+  }
+
+  State* update_last_crosshair(Vector2 v) {
+    if (crosshairs.size() < 1) crosshairs.push_back({});
+    round(&v);
+    crosshairs.back() = v;
+    return this;
+  }
+
+  State* add_new_crosshair() {
+    crosshairs.push_back({});
+    return this;
+  }
+
+  State* remove_crosshair() {
+    if (crosshairs.size() > 0) crosshairs.pop_back();
+    return this;
+  }
+
   Image render_screenshot_and_close() {
     LOG("Begin load image from texture\n");
 
@@ -254,22 +301,40 @@ struct State {
         }, {0, 0}, {255, 255, 255, 255});
 
           if (check_tools(Tools::CROSSHAIR)) {
-            auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-            auto selection_pos = texture_pos - *min_point;
+            for (auto& c : crosshairs) {
+              auto selection_pos = c - *min_point;
 
-            DrawLineEx(
-              { 0,     height - selection_pos.y },
-              { width, height - selection_pos.y },
-              2,
-              MAGENTA
-            );
+              DrawLineEx(
+                { 0,     height - selection_pos.y },
+                { width, height - selection_pos.y },
+                1,
+                MAGENTA
+              );
 
-            DrawLineEx(
-              { selection_pos.x, 0},
-              { selection_pos.x, height },
-              2,
-              MAGENTA
-            );
+              DrawLineEx(
+                { selection_pos.x, 0},
+                { selection_pos.x, height },
+                1,
+                MAGENTA
+              );
+            }
+
+            // auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+            // auto selection_pos = texture_pos - *min_point;
+
+            // DrawLineEx(
+            //   { 0,     height - selection_pos.y },
+            //   { width, height - selection_pos.y },
+            //   1,
+            //   MAGENTA
+            // );
+
+            // DrawLineEx(
+            //   { selection_pos.x, 0},
+            //   { selection_pos.x, height },
+            //   1,
+            //   MAGENTA
+            // );
           }
       EndTextureMode();
     EndDrawing();
@@ -357,6 +422,8 @@ int main() {
     }
 
     if (IsKeyPressed(KEY_F)) state->toggle_tools(Tools::CROSSHAIR);
+    if (IsKeyDown(KEY_LEFT_SHIFT) && IsMouseButtonDown(0)) state->add_new_crosshair();
+    if (IsKeyDown(KEY_LEFT_SHIFT) && IsMouseButtonDown(1)) state->remove_crosshair();
 
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_C)) {
       auto image = state->render_screenshot_and_close();
@@ -381,7 +448,7 @@ int main() {
       BeginMode2D(state->camera);
         DrawTexture(state->screenshot_texture, 0, 0, WHITE);
 
-        if (IsMouseButtonDown(1)) {
+        if (IsMouseButtonDown(1) && IsKeyUp(KEY_LEFT_SHIFT)) {
           if (!state->select_area_in_progress) state->first_point = nullopt;
           state->select_area_in_progress = true;
           if (!state->first_point.has_value()) state->set_first_point(GetScreenToWorld2D(thisPos, state->camera));
@@ -391,8 +458,14 @@ int main() {
           state->select_area_in_progress = false;
         }
 
-        state->draw_shading();
-        state->draw_selection_box();
+        if (state->check_tools(Tools::CROSSHAIR)) {
+          state->update_last_crosshair(GetScreenToWorld2D(thisPos, state->camera));
+        }
+
+        state
+          ->draw_shading()
+          ->draw_selection_box()
+          ->draw_crosshairs();
       EndMode2D();
 
       #ifdef DEBUG
@@ -400,21 +473,6 @@ int main() {
       #endif
 
       // state->draw_tool_pallete();
-
-      if (state->check_tools(Tools::CROSSHAIR)) {
-        DrawLineEx(
-          { 0,                                      thisPos.y },
-          { (float)state->screenshot_texture.width, thisPos.y},
-          2,
-          MAGENTA
-        );
-        DrawLineEx(
-          { thisPos.x, 0 },
-          { thisPos.x, (float)state->screenshot_texture.height},
-          2,
-          MAGENTA
-        );
-      }
     EndDrawing();
   }
 
