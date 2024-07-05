@@ -30,29 +30,58 @@ static int __COUNTER = -1;
 
 #define FF "(%06.1f; %06.1f)"
 #define F(v) v.x, v.y
+
+#define BINARY_F "%c%c%c%c%c%c%c%c"
+#define BYTE_TO_BIN(byte)  \
+  ((byte) & 0x80 ? '1' : '0'), \
+  ((byte) & 0x40 ? '1' : '0'), \
+  ((byte) & 0x20 ? '1' : '0'), \
+  ((byte) & 0x10 ? '1' : '0'), \
+  ((byte) & 0x08 ? '1' : '0'), \
+  ((byte) & 0x04 ? '1' : '0'), \
+  ((byte) & 0x02 ? '1' : '0'), \
+  ((byte) & 0x01 ? '1' : '0')
+
 //-Macros
 
 //+Extends default
-inline bool operator==(Vector2 l, Vector2 r) { return l.x == r.x && l.y == r.y; }
-inline Vector2 operator-(Vector2 l, Vector2 r) { return Vector2Subtract(l, r); }
-inline Vector2 operator-(Vector2 l, float r) { return Vector2SubtractValue(l, r); }
-inline Vector2 operator+(Vector2 l, Vector2 r) { return Vector2Add(l, r); }
-inline Vector2 operator+(Vector2 l, float r) { return Vector2AddValue(l, r); }
-inline Vector2* round(Vector2* l) {
+inline bool operator==(Vector2 l, Vector2 r) noexcept { return l.x == r.x && l.y == r.y; }
+inline Vector2 operator-(Vector2 l, Vector2 r) noexcept { return Vector2Subtract(l, r); }
+inline Vector2 operator-(Vector2 l, float r) noexcept { return Vector2SubtractValue(l, r); }
+inline Vector2 operator+(Vector2 l, Vector2 r) noexcept { return Vector2Add(l, r); }
+inline Vector2 operator+(Vector2 l, float r) noexcept { return Vector2AddValue(l, r); }
+inline Vector2* round(Vector2* l) noexcept {
   l->x = round(l->x);
   l->y = round(l->y);
 
   return l;
 }
 
+inline Vector2 Vector2AddXValue(Vector2 v, float val) { return { v.x + val, v.y }; }
+inline Vector2 Vector2AddYValue(Vector2 v, float val) { return { v.x, v.y + val }; }
+
 Rectangle rect_from_vectors(Vector2 first_point, Vector2 second_point) noexcept {
+  Vector2 min_point = {
+    fmin(first_point.x, second_point.x),
+    fmin(first_point.y, second_point.y),
+  };
+
+  Vector2 max_point = {
+    fmax(first_point.x, second_point.x),
+    fmax(first_point.y, second_point.y),
+  };
+
+  auto sizes = max_point - min_point;
+
   return Rectangle {
-      first_point.x,
-      first_point.y,
-      second_point.x,
-      second_point.y,
+      min_point.x,
+      min_point.y,
+      sizes.x,
+      sizes.y
   };
 }
+
+
 //-Extends default
 
 using namespace std;
@@ -61,29 +90,35 @@ static Font font;
 
 enum Tools {
   CROSSHAIR = 1,
+  LINE      = 2,
+  RECTANGLE = 4,
 };
-static int count_tools = 1;
+static int count_tools = 3;
 
 struct State {
-  std::pair<uint, uint> screen_size;
+  pair<uint, uint> screen_size;
   u_char* screenshot_data;
   Texture2D screenshot_texture;
   Camera2D camera = {};
 
-  std::optional<Vector2> first_point = nullopt;
-  std::optional<Vector2> second_point = nullopt;
+  optional<Vector2> first_point = nullopt;
+  optional<Vector2> second_point = nullopt;
 
-  std::optional<Vector2> min_point = nullopt;
-  std::optional<Vector2> max_point = nullopt;
+  optional<Vector2> min_point = nullopt;
+  optional<Vector2> max_point = nullopt;
 
   bool select_area_in_progress = false;
 
-  int tools;
+  char tools;
 
-  std::vector<Vector2> crosshairs = {};
+  vector<Vector2> crosshairs = {};
+  vector<pair<optional<Vector2>, optional<Vector2>>> lines = {};
+  vector<pair<optional<Vector2>, optional<Vector2>>> rectangles = {};
 
-  inline State* active_tools(Tools tool) { this->tools &= tool; return this; }
-  inline bool toggle_tools(Tools tool) { this->tools = !(this->tools & tool); return this->tools & tool; }
+  inline State* activate_tools(Tools tool) { this->tools |= tool; return this; }
+  inline State* deactivate_tools(Tools tool) { this->tools &= ~tool; return this; }
+  inline State* reset_tools() { this->tools = 0; return this; }
+  inline bool toggle_tools(Tools tool) { this->tools ^= tool; return this->tools & tool; }
   inline bool check_tools(Tools tool) { return this->tools & tool; }
 
   inline uint swidth() { return this->screen_size.first; }
@@ -166,8 +201,9 @@ struct State {
 
   State* draw_selection_box() {
     if (!min_point.has_value() || !max_point.has_value()) return this;
+    auto size = *max_point - *min_point;
 
-    DrawRectangleLinesEx( rect_from_vectors( *min_point, *max_point - *min_point ), 2 / camera.zoom, BLUE );
+    DrawRectangleLinesEx( { min_point->x, min_point->y, size.x, size.y }, 2 / camera.zoom, BLUE );
 
     if (select_area_in_progress) {
       const Vector2 points[] = {
@@ -189,17 +225,26 @@ struct State {
   }
 
   State* draw_tool_pallete() {
-    // if (!tools) return this;
-
-    // int tools_count = __builtin_popcount(tools);
+    const auto radius = 15;
+    const auto space = radius * count_tools;
 
     for (int i = 0; i < count_tools; i++) {
-      DrawCircleGradient(400 + 50*i, 400, 40, {230, 230, 230, 255}, WHITE);
+      const float x = GetMousePosition().x + cos(i) * radius*4;
+      const float y = GetMousePosition().y + sin(i) * radius*4;
+
+      DrawCircleLines(x, y, radius, BLACK);
+      DrawCircleGradient(x, y, radius, {230, 230, 230, 255}, WHITE);
 
       switch (tools & (int)pow(2.0, (float)i)) {
-      case 1:
-        DrawText("CR", 400 + 50*i - 40/2, 400 - 40/2, 36, BLACK);
-        break;
+      case 1: DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255}); break;
+      case 2: DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255}); break;
+      case 4: DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255}); break;
+      }
+
+      switch (i) {
+      case 0: DrawTextEx(font, "CR", { static_cast<float>(x - radius/2), y - radius/2 }, radius, 1, BLACK); break;
+      case 1: DrawTextEx(font, "AR", { static_cast<float>(x - radius/2), y - radius/2 }, radius, 1, BLACK); break;
+      case 2: DrawTextEx(font, "RE", { static_cast<float>(x - radius/2), y - radius/2 }, radius, 1, BLACK); break;
       }
     }
 
@@ -216,40 +261,147 @@ struct State {
       "Mouse: " FF ", "
       "Mouse to texture: " FF ", "
       "Mouse into selection: " FF ", "
-      "FPS: %d",
+      "FPS: %d"
+      "Tools: " BINARY_F
+      "\n\n"
+      "Last rectangle: [" FF ", " FF "], Crosshair: " FF,
       F(GetMousePosition()),
       F(texture_pos),
       F(selection_pos),
-      GetFPS()
+      GetFPS(),
+      BYTE_TO_BIN(tools),
+      rectangles.size() > 0 ? rectangles.back().first->x : 0.0,
+      rectangles.size() > 0 ? rectangles.back().first->y : 0.0,
+      rectangles.size() > 0 ? rectangles.back().second->x : 0.0,
+      rectangles.size() > 0 ? rectangles.back().second->y : 0.0,
+      crosshairs.size() > 0 ? crosshairs.back().x : 0.0,
+      crosshairs.size() > 0 ? crosshairs.back().y : 0.0
     );
 
-    DrawRectangle(0, 0, swidth(), 40, {40, 40, 40, 150});
+    DrawRectangle(0, 0, swidth(), 80, {40, 40, 40, 150});
     DrawTextEx(font, debug_buffer, {5, 5}, 32, 1, GREEN);
 
     return this;
   }
 
   State* draw_crosshairs() {
-    if (!check_tools(Tools::CROSSHAIR)) return this;
-
+    int i = 0;
     for (auto& c : crosshairs) {
+      if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
+
       DrawLineEx(
         { 0, c.y },
         { (float)screenshot_texture.width, c.y},
-        2.5/ camera.zoom,
+        3,
         MAGENTA
       );
 
       DrawLineEx(
         { c.x, 0 },
         { c.x, (float)screenshot_texture.height},
-        2.5/ camera.zoom,
+        3,
         MAGENTA
       );
     }
 
     return this;
   }
+
+  State* draw_lines() {
+      int i = 0;
+      for (auto& [fp, sp] : lines) {
+        if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
+        if (!fp.has_value() || !sp.has_value()) break;
+
+        DrawLineEx(
+          { fp->x, fp->y },
+          { sp->x, sp->y },
+          5,
+          MAGENTA
+        );
+      }
+
+      return this;
+  }
+
+  State* draw_rectangles() {
+      int i = 0;
+      for (auto& [fp, sp] : rectangles) {
+        if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
+        if (!fp.has_value() || !sp.has_value()) break;
+
+        DrawRectangleLinesEx(rect_from_vectors(*fp, *sp), 5, MAGENTA);
+      }
+
+      return this;
+  }
+
+
+  State* update_last_rectangle_first_point(Vector2 l) {
+    if (rectangles.size() < 1) rectangles.push_back({});
+    round(&l);
+
+    LOG("Update first rect point after: " FF "\n", F(l));
+
+    auto& last_rectangle = rectangles.back();
+
+    last_rectangle.first = l;
+    return this;
+  }
+
+  State* update_last_rectangle_second_point(Vector2 l) {
+    if (rectangles.size() < 1) rectangles.push_back({});
+    round(&l);
+
+    LOG("Update last rect point after: " FF "\n", F(l));
+
+    auto& last_rectangle = rectangles.back();
+
+    last_rectangle.second = l;
+    return this;
+  }
+
+  State* add_new_rectangle() {
+    rectangles.push_back({});
+    return this;
+  }
+
+  State* remove_rectangle() {
+    if (rectangles.size() > 0) rectangles.pop_back();
+    return this;
+  }
+
+
+  State* update_last_line_first_point(Vector2 l) {
+    if (lines.size() < 1) lines.push_back({});
+    round(&l);
+
+    auto& last_line = lines.back();
+
+    last_line.first = l;
+    return this;
+  }
+
+  State* update_last_line_second_point(Vector2 l) {
+    if (lines.size() < 1) lines.push_back({});
+    round(&l);
+
+    auto& last_line = lines.back();
+
+    last_line.second = l;
+    return this;
+  }
+
+  State* add_new_line() {
+    lines.push_back({});
+    return this;
+  }
+
+  State* remove_line() {
+    if (lines.size() > 0) lines.pop_back();
+    return this;
+  }
+
 
   State* update_last_crosshair(Vector2 v) {
     if (crosshairs.size() < 1) crosshairs.push_back({});
@@ -300,41 +452,54 @@ struct State {
           -height,
         }, {0, 0}, {255, 255, 255, 255});
 
-          if (check_tools(Tools::CROSSHAIR)) {
-            for (auto& c : crosshairs) {
-              auto selection_pos = c - *min_point;
+          int i = 0;
+          for (auto& c : crosshairs) {
+            if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
+            auto selection_pos = c - *min_point;
 
-              DrawLineEx(
-                { 0,     height - selection_pos.y },
-                { width, height - selection_pos.y },
-                1,
-                MAGENTA
-              );
+            DrawLineEx(
+              { 0,     height - selection_pos.y },
+              { width, height - selection_pos.y },
+              3,
+              MAGENTA
+            );
 
-              DrawLineEx(
-                { selection_pos.x, 0},
-                { selection_pos.x, height },
-                1,
-                MAGENTA
-              );
-            }
+            DrawLineEx(
+              { selection_pos.x, 0},
+              { selection_pos.x, height },
+              3,
+              MAGENTA
+            );
+          }
 
-            // auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-            // auto selection_pos = texture_pos - *min_point;
+          i = 0;
+          for (auto& [f, s] : lines) {
+            if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
+            auto f_ = *f - *min_point;
+            auto s_ = *s - *min_point;
 
-            // DrawLineEx(
-            //   { 0,     height - selection_pos.y },
-            //   { width, height - selection_pos.y },
-            //   1,
-            //   MAGENTA
-            // );
+            DrawLineEx(
+              { f_.x, height - f_.y },
+              { s_.x, height - s_.y },
+              5,
+              MAGENTA
+            );
+          }
 
-            // DrawLineEx(
-            //   { selection_pos.x, 0},
-            //   { selection_pos.x, height },
-            //   1,
-            //   MAGENTA
-            // );
+          i = 0;
+          for (auto& [f, s] : rectangles) {
+            if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
+            auto f_ = *f - *min_point;
+            auto s_ = *s - *min_point;
+
+            DrawRectangleLinesEx(
+              rect_from_vectors(
+                { f_.x, height - f_.y },
+                { s_.x, height - s_.y }
+              ),
+              5,
+              MAGENTA
+            );
           }
       EndTextureMode();
     EndDrawing();
@@ -358,6 +523,7 @@ int main() {
 #endif
 
   InitWindow(state->swidth(), state->sheight(), "_");
+  // SetExitKey(0);
   SetWindowFocused();
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
 
@@ -392,8 +558,8 @@ int main() {
 
       state->camera.zoom += wheel * log(state->camera.zoom + 0.9);
 
-      if (state->camera.zoom <= 0.6f) state->camera.zoom = 0.6f;
-      if (state->camera.zoom >= 80) state->camera.zoom = 80.0f;
+      if (state->camera.zoom <= 0.3f) state->camera.zoom = 0.3f;
+      if (state->camera.zoom >= 100) state->camera.zoom = 100.0f;
     }
 
     Vector2 delta = prevMousePos - thisPos;
@@ -402,28 +568,20 @@ int main() {
     if (IsMouseButtonDown(0)) {
       SetMouseCursor(MOUSE_CURSOR_RESIZE_ALL);
       state->camera.target = GetScreenToWorld2D(state->camera.offset + delta, state->camera);
+    } else {
+      SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
     }
 
-    if (IsMouseButtonUp(0)) SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
-
-    if (IsKeyPressed(KEY_R)) {
-      // auto w = GetScreenWidth();
-      // auto h = GetScreenHeight();
-      // SetWindowSize(0, 0);
-      // state->screenshot_data = take_screenshot(state->screen_size);
-      // state->screenshot_texture = LoadTextureFromImage((Image){
-      //     .data = state->screenshot_data,
-      //     .width = (int)state->swidth(),
-      //     .height = (int)state->sheight(),
-      //     .mipmaps = 1,
-      //     .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
-      // });
-      // SetWindowSize(w, h);
+    if (IsKeyPressed(KEY_ESCAPE)) {
+      state->reset_tools();
     }
 
-    if (IsKeyPressed(KEY_F)) state->toggle_tools(Tools::CROSSHAIR);
-    if (IsKeyDown(KEY_LEFT_SHIFT) && IsMouseButtonDown(0)) state->add_new_crosshair();
-    if (IsKeyDown(KEY_LEFT_SHIFT) && IsMouseButtonDown(1)) state->remove_crosshair();
+    // Tools::CROSSHAIR
+      if (IsKeyDown( KEY_F )) {
+        state->activate_tools(Tools::CROSSHAIR);
+        if (IsMouseButtonPressed(0)) state->add_new_crosshair();
+        if (IsMouseButtonPressed(1)) state->remove_crosshair();
+      } else { state->deactivate_tools(Tools::CROSSHAIR); }
 
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_C)) {
       auto image = state->render_screenshot_and_close();
@@ -462,17 +620,58 @@ int main() {
           state->update_last_crosshair(GetScreenToWorld2D(thisPos, state->camera));
         }
 
+        // Tools::LINE
+          if (IsKeyDown( KEY_A ) && !(state->check_tools(Tools::LINE))) {
+            state->activate_tools(Tools::LINE);
+            state->update_last_line_first_point(GetScreenToWorld2D(thisPos, state->camera));
+          }
+
+          if (IsKeyUp( KEY_A ) && state->check_tools(Tools::LINE)) state->deactivate_tools(Tools::LINE);
+
+          if (state->check_tools(Tools::LINE)) {
+            state->update_last_line_second_point(GetScreenToWorld2D(thisPos, state->camera));
+
+            if (IsMouseButtonPressed(0)) {
+              state->add_new_line();
+              state->deactivate_tools(Tools::LINE);
+            }
+
+            if (IsMouseButtonPressed(1)) state->remove_line();
+          }
+
+        // Tools::RECTANGLE
+          if (IsKeyDown( KEY_R ) && !(state->check_tools(Tools::RECTANGLE))) {
+            state->activate_tools(Tools::RECTANGLE);
+            LOG("Update first rect point before: " FF "\n", F(GetScreenToWorld2D(thisPos, state->camera)));
+            state->update_last_rectangle_first_point(GetScreenToWorld2D(thisPos, state->camera));
+          }
+
+          if (IsKeyUp( KEY_R ) && state->check_tools(Tools::RECTANGLE)) state->deactivate_tools(Tools::RECTANGLE);
+
+          if (state->check_tools(Tools::RECTANGLE)) {
+            LOG("Update last rect point before: " FF "\n", F(GetScreenToWorld2D(thisPos, state->camera)));
+            state->update_last_rectangle_second_point(GetScreenToWorld2D(thisPos, state->camera));
+
+            if (IsMouseButtonPressed(0)) {
+              state->add_new_rectangle();
+              state->deactivate_tools(Tools::RECTANGLE);
+            }
+
+            if (IsMouseButtonPressed(1)) state->remove_rectangle();
+          }
+
         state
           ->draw_shading()
           ->draw_selection_box()
-          ->draw_crosshairs();
+          ->draw_crosshairs()
+          ->draw_lines()
+          ->draw_rectangles();
       EndMode2D();
 
       #ifdef DEBUG
       state->draw_debug_line();
+      state->draw_tool_pallete();
       #endif
-
-      // state->draw_tool_pallete();
     EndDrawing();
   }
 
