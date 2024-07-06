@@ -17,71 +17,70 @@
 #include "screenshot.h"
 
 //+Macros
-static int __COUNTER = -1;
+  static int __COUNTER = -1;
 
-#ifdef DEBUG
-  #define LOG(__format_string, ...) do { \
-    printf("%s:%d (%s)@%d : " __format_string, __FILE__, __LINE__, __FUNCTION__, ++__COUNTER, ##__VA_ARGS__); \
-    fflush(stdout); \
-  } while (0)
-#else
-  #define LOG(__format_string, ...) {}
-#endif
+  #ifdef DEBUG
+    #define LOG(__format_string, ...) do { \
+      printf("%s:%d (%s)@%d : " __format_string, __FILE__, __LINE__, __FUNCTION__, ++__COUNTER, ##__VA_ARGS__); \
+      fflush(stdout); \
+    } while (0)
+  #else
+    #define LOG(__format_string, ...) {}
+  #endif
 
-#define FF "(%06.1f; %06.1f)"
-#define F(v) v.x, v.y
+  #define FF "(%06.1f; %06.1f)"
+  #define F(v) v.x, v.y
 
-#define BINARY_F "%c%c%c%c%c%c%c%c"
-#define BYTE_TO_BIN(byte)  \
-  ((byte) & 0x80 ? '1' : '0'), \
-  ((byte) & 0x40 ? '1' : '0'), \
-  ((byte) & 0x20 ? '1' : '0'), \
-  ((byte) & 0x10 ? '1' : '0'), \
-  ((byte) & 0x08 ? '1' : '0'), \
-  ((byte) & 0x04 ? '1' : '0'), \
-  ((byte) & 0x02 ? '1' : '0'), \
-  ((byte) & 0x01 ? '1' : '0')
-
+  #define BINARY_F "%c%c%c%c%c%c%c%c"
+  #define BYTE_TO_BIN(byte)  \
+    ((byte) & 0x80 ? '1' : '0'), \
+    ((byte) & 0x40 ? '1' : '0'), \
+    ((byte) & 0x20 ? '1' : '0'), \
+    ((byte) & 0x10 ? '1' : '0'), \
+    ((byte) & 0x08 ? '1' : '0'), \
+    ((byte) & 0x04 ? '1' : '0'), \
+    ((byte) & 0x02 ? '1' : '0'), \
+    ((byte) & 0x01 ? '1' : '0')
 //-Macros
 
 //+Extends default
-inline bool operator==(Vector2 l, Vector2 r) noexcept { return l.x == r.x && l.y == r.y; }
-inline Vector2 operator-(Vector2 l, Vector2 r) noexcept { return Vector2Subtract(l, r); }
-inline Vector2 operator-(Vector2 l, float r) noexcept { return Vector2SubtractValue(l, r); }
-inline Vector2 operator+(Vector2 l, Vector2 r) noexcept { return Vector2Add(l, r); }
-inline Vector2 operator+(Vector2 l, float r) noexcept { return Vector2AddValue(l, r); }
-inline Vector2* round(Vector2* l) noexcept {
-  l->x = round(l->x);
-  l->y = round(l->y);
+  using vec2 = Vector2;
 
-  return l;
-}
+  inline bool operator==(const vec2& l, const vec2& r) noexcept { return l.x == r.x && l.y == r.y; }
+  inline vec2 operator-(const vec2& l, const vec2& r) noexcept { return Vector2Subtract(l, r); }
+  inline vec2 operator-(const vec2& l, const float& r) noexcept { return Vector2SubtractValue(l, r); }
+  inline vec2 operator+(const vec2& l, const vec2& r) noexcept { return Vector2Add(l, r); }
+  inline vec2 operator+(const vec2& l, const float& r) noexcept { return Vector2AddValue(l, r); }
+  inline vec2& round(vec2& l) noexcept {
+    l.x = round(l.x);
+    l.y = round(l.y);
+    return l;
+  }
 
-inline Vector2 Vector2AddXValue(Vector2 v, float val) { return { v.x + val, v.y }; }
-inline Vector2 Vector2AddYValue(Vector2 v, float val) { return { v.x, v.y + val }; }
+  inline vec2 Vector2AddXValue(vec2 v, float val) { return { v.x + val, v.y }; }
+  inline vec2 Vector2AddYValue(vec2 v, float val) { return { v.x, v.y + val }; }
+  inline vec2 Vector2MultiplyValue(vec2 v, float val) { return { v.x * val, v.y * val }; }
 
-Rectangle rect_from_vectors(Vector2 first_point, Vector2 second_point) noexcept {
-  Vector2 min_point = {
-    fmin(first_point.x, second_point.x),
-    fmin(first_point.y, second_point.y),
-  };
+  Rectangle rect_from_vectors(vec2 first_point, vec2 second_point) noexcept {
+    vec2 min_point = {
+      fmin(first_point.x, second_point.x),
+      fmin(first_point.y, second_point.y),
+    };
 
-  Vector2 max_point = {
-    fmax(first_point.x, second_point.x),
-    fmax(first_point.y, second_point.y),
-  };
+    vec2 max_point = {
+      fmax(first_point.x, second_point.x),
+      fmax(first_point.y, second_point.y),
+    };
 
-  auto sizes = max_point - min_point;
+    auto sizes = max_point - min_point;
 
-  return Rectangle {
-      min_point.x,
-      min_point.y,
-      sizes.x,
-      sizes.y
-  };
-}
-
-
+    return Rectangle {
+        min_point.x,
+        min_point.y,
+        sizes.x,
+        sizes.y
+    };
+  }
 //-Extends default
 
 using namespace std;
@@ -92,8 +91,9 @@ enum Tools {
   CROSSHAIR = 1,
   LINE      = 2,
   RECTANGLE = 4,
+  ARROW     = 8,
 };
-static int count_tools = 3;
+static int count_tools = 4;
 
 struct State {
   pair<uint, uint> screen_size;
@@ -101,19 +101,20 @@ struct State {
   Texture2D screenshot_texture;
   Camera2D camera = {};
 
-  optional<Vector2> first_point = nullopt;
-  optional<Vector2> second_point = nullopt;
+  optional<vec2> first_point = nullopt;
+  optional<vec2> second_point = nullopt;
 
-  optional<Vector2> min_point = nullopt;
-  optional<Vector2> max_point = nullopt;
+  optional<vec2> min_point = nullopt;
+  optional<vec2> max_point = nullopt;
 
   bool select_area_in_progress = false;
 
   char tools;
 
-  vector<Vector2> crosshairs = {};
-  vector<pair<optional<Vector2>, optional<Vector2>>> lines = {};
-  vector<pair<optional<Vector2>, optional<Vector2>>> rectangles = {};
+  vector<vec2> crosshairs = {};
+  vector<pair<optional<vec2>, optional<vec2>>> lines = {};
+  vector<pair<optional<vec2>, optional<vec2>>> arrows = {};
+  vector<pair<optional<vec2>, optional<vec2>>> rectangles = {};
 
   inline State* activate_tools(Tools tool) { this->tools |= tool; return this; }
   inline State* deactivate_tools(Tools tool) { this->tools &= ~tool; return this; }
@@ -138,7 +139,7 @@ struct State {
     return this;
   }
 
-  State* _fix_bound_point(std::optional<Vector2>* point) {
+  State* _fix_bound_point(std::optional<vec2>* point) {
     assert(point);
 
     (*point)->x = (*point)->x <= 0 ? 0
@@ -154,15 +155,14 @@ struct State {
     return this;
   }
 
-  State* _set_point(Vector2 p, std::optional<Vector2>* target, std::optional<Vector2>* neighboring) {
+  State* _set_point(vec2 p, std::optional<vec2>* target, std::optional<vec2>* neighboring) {
     assert(target);
     assert(neighboring);
 
     if ((*target) == p) return this;
-    round(&p);
 
     if (!(*neighboring).has_value()) {
-      (*target) = p;
+      (*target) = round(p);
       return this;
     }
 
@@ -172,8 +172,8 @@ struct State {
       ->_recalc_min_max_points();
   }
 
-  State* set_first_point(Vector2 p) { return _set_point(p, &first_point, &second_point); }
-  State* set_second_point(Vector2 p) { return _set_point(p, &second_point, &first_point); }
+  State* set_first_point(vec2 p) { return _set_point(p, &first_point, &second_point); }
+  State* set_second_point(vec2 p) { return _set_point(p, &second_point, &first_point); }
 
   State* draw_shading() {
     if (!this->first_point.has_value() || !this->second_point.has_value()) return this;
@@ -182,7 +182,7 @@ struct State {
     const int alpha = 180;
     const Color color = {10, 10, 10, alpha};
 
-    const Vector2 points[] = {
+    const vec2 points[] = {
       { 0                           , 0                        },
       { min_point->x                , (float)sheight()         },
       { min_point->x                , 0                        },
@@ -206,7 +206,7 @@ struct State {
     DrawRectangleLinesEx( { min_point->x, min_point->y, size.x, size.y }, 2 / camera.zoom, BLUE );
 
     if (select_area_in_progress) {
-      const Vector2 points[] = {
+      const vec2 points[] = {
         { 0                               , first_point->y                   },
         { (float)screenshot_texture.width , first_point->y                   },
         { first_point->x                  , 0                                },
@@ -225,7 +225,7 @@ struct State {
   }
 
   State* draw_tool_pallete() {
-    const auto radius = 15;
+    const auto radius = 20;
     const auto space = radius * count_tools;
 
     for (int i = 0; i < count_tools; i++) {
@@ -233,18 +233,17 @@ struct State {
       const float y = GetMousePosition().y + sin(i) * radius*4;
 
       DrawCircleLines(x, y, radius, BLACK);
-      DrawCircleGradient(x, y, radius, {230, 230, 230, 255}, WHITE);
+      DrawCircleGradient(x, y, radius, {230, 230, 230, 100}, {255, 255, 255, 100});
 
-      switch (tools & (int)pow(2.0, (float)i)) {
-      case 1: DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255}); break;
-      case 2: DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255}); break;
-      case 4: DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255}); break;
+      if (tools & (1 << i)) {
+        DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255});
       }
 
       switch (i) {
-      case 0: DrawTextEx(font, "CR", { static_cast<float>(x - radius/2), y - radius/2 }, radius, 1, BLACK); break;
-      case 1: DrawTextEx(font, "AR", { static_cast<float>(x - radius/2), y - radius/2 }, radius, 1, BLACK); break;
-      case 2: DrawTextEx(font, "RE", { static_cast<float>(x - radius/2), y - radius/2 }, radius, 1, BLACK); break;
+        case 0: DrawTextEx(font, "Cr", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
+        case 1: DrawTextEx(font, "Li", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
+        case 2: DrawTextEx(font, "Re", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
+        case 3: DrawTextEx(font, "Ar", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
       }
     }
 
@@ -261,7 +260,7 @@ struct State {
       "Mouse: " FF ", "
       "Mouse to texture: " FF ", "
       "Mouse into selection: " FF ", "
-      "FPS: %d"
+      "FPS: %d, "
       "Tools: " BINARY_F
       "\n\n"
       "Last rectangle: [" FF ", " FF "], Crosshair: " FF,
@@ -324,40 +323,72 @@ struct State {
       return this;
   }
 
+  State* draw_arrows() {
+      int i = 0;
+      for (auto& [fp, sp] : arrows) {
+        if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
+        if (!fp.has_value() || !sp.has_value()) break;
+
+        DrawLineEx(
+          { fp->x, fp->y },
+          { sp->x, sp->y },
+          5,
+          MAGENTA
+        );
+
+        vec2 v = Vector2Normalize(*sp - *fp);
+        auto a_ = Vector2Rotate(v,  -PI/0.30);
+        auto b_ = Vector2Rotate(v,   PI/0.30);
+
+        a_ = Vector2MultiplyValue(Vector2Normalize(a_ - v), 45.0f) + *sp;
+        b_ = Vector2MultiplyValue(Vector2Normalize(b_ - v), 45.0f) + *sp;
+
+        DrawLineEx(
+          a_,
+          *sp,
+          7,
+          MAGENTA
+        );
+        DrawLineEx(
+          b_,
+          *sp,
+          7,
+          MAGENTA
+        );
+      }
+
+      return this;
+  }
+
   State* draw_rectangles() {
       int i = 0;
       for (auto& [fp, sp] : rectangles) {
         if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
 
-        DrawRectangleLinesEx(rect_from_vectors(*fp, *sp), 5, MAGENTA);
+        DrawRectangleRoundedLines(rect_from_vectors(*fp, *sp), 0.05, 10, 5, MAGENTA);
       }
 
       return this;
   }
 
 
-  State* update_last_rectangle_first_point(Vector2 l) {
+  State* update_last_rectangle_first_point(vec2 l) {
     if (rectangles.size() < 1) rectangles.push_back({});
-    round(&l);
-
-    LOG("Update first rect point after: " FF "\n", F(l));
 
     auto& last_rectangle = rectangles.back();
 
-    last_rectangle.first = l;
+    last_rectangle.first = round(l);
     return this;
   }
 
-  State* update_last_rectangle_second_point(Vector2 l) {
+  State* update_last_rectangle_second_point(vec2 l) {
     if (rectangles.size() < 1) rectangles.push_back({});
-    round(&l);
-
-    LOG("Update last rect point after: " FF "\n", F(l));
+    round(l);
 
     auto& last_rectangle = rectangles.back();
 
-    last_rectangle.second = l;
+    last_rectangle.second = round(l);
     return this;
   }
 
@@ -372,23 +403,19 @@ struct State {
   }
 
 
-  State* update_last_line_first_point(Vector2 l) {
+  State* update_last_line_first_point(vec2 l) {
     if (lines.size() < 1) lines.push_back({});
-    round(&l);
-
     auto& last_line = lines.back();
 
-    last_line.first = l;
+    last_line.first = round(l);
     return this;
   }
 
-  State* update_last_line_second_point(Vector2 l) {
+  State* update_last_line_second_point(vec2 l) {
     if (lines.size() < 1) lines.push_back({});
-    round(&l);
-
     auto& last_line = lines.back();
 
-    last_line.second = l;
+    last_line.second = round(l);
     return this;
   }
 
@@ -403,10 +430,36 @@ struct State {
   }
 
 
-  State* update_last_crosshair(Vector2 v) {
+  State* update_last_arrow_first_point(vec2 l) {
+    if (arrows.size() < 1) arrows.push_back({});
+    auto& last_arrow = arrows.back();
+
+    last_arrow.first = round(l);
+    return this;
+  }
+
+  State* update_last_arrow_second_point(vec2 l) {
+    if (arrows.size() < 1) arrows.push_back({});
+    auto& last_arrow = arrows.back();
+
+    last_arrow.second = round(l);
+    return this;
+  }
+
+  State* add_new_arrow() {
+    arrows.push_back({});
+    return this;
+  }
+
+  State* remove_arrow() {
+    if (arrows.size() > 0) arrows.pop_back();
+    return this;
+  }
+
+
+  State* update_last_crosshair(vec2 v) {
     if (crosshairs.size() < 1) crosshairs.push_back({});
-    round(&v);
-    crosshairs.back() = v;
+    crosshairs.back() = round(v);
     return this;
   }
 
@@ -423,8 +476,8 @@ struct State {
   Image render_screenshot_and_close() {
     LOG("Begin load image from texture\n");
 
-    auto screen_first_point = min_point.value_or(Vector2{ 0, 0 });
-    auto screen_second_point = max_point.value_or(Vector2{
+    auto screen_first_point = min_point.value_or(vec2{ 0, 0 });
+    auto screen_second_point = max_point.value_or(vec2{
       static_cast<float>(swidth()),
       static_cast<float>(sheight())
     });
@@ -492,12 +545,42 @@ struct State {
             auto f_ = *f - *min_point;
             auto s_ = *s - *min_point;
 
-            DrawRectangleLinesEx(
-              rect_from_vectors(
-                { f_.x, height - f_.y },
-                { s_.x, height - s_.y }
-              ),
+            DrawRectangleRoundedLines(rect_from_vectors(
+              { f_.x, height - f_.y },
+              { s_.x, height - s_.y }
+            ), 0.05, 10, 5, MAGENTA);
+          }
+
+          i = 0;
+          for (auto& [f, s] : arrows) {
+            if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
+            auto f_ = *f - *min_point;
+            auto s_ = *s - *min_point;
+
+            DrawLineEx(
+              { f_.x, height - f_.y },
+              { s_.x, height - s_.y },
               5,
+              MAGENTA
+            );
+
+            vec2 v = Vector2Normalize(s_ - f_);
+            auto a_ = Vector2Rotate(v,  -PI/0.30);
+            auto b_ = Vector2Rotate(v,   PI/0.30);
+
+            a_ = Vector2MultiplyValue(Vector2Normalize(a_ - v), 45.0f) + s_;
+            b_ = Vector2MultiplyValue(Vector2Normalize(b_ - v), 45.0f) + s_;
+
+            DrawLineEx(
+              { a_.x, height - a_.y },
+              { s_.x, height - s_.y },
+              7,
+              MAGENTA
+            );
+            DrawLineEx(
+              { b_.x, height - b_.y },
+              { s_.x, height - s_.y },
+              7,
               MAGENTA
             );
           }
@@ -527,9 +610,7 @@ int main() {
   SetWindowFocused();
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
 
-#ifdef DEBUG
   font = LoadFont_Terminus();
-#endif
 
   load_screenshot_thread.join();
 
@@ -543,7 +624,7 @@ int main() {
 
   state->camera.zoom = 1.0;
 
-  Vector2 prevMousePos = GetMousePosition();
+  vec2 prevMousePos = GetMousePosition();
 
   SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
   while (!WindowShouldClose()) {
@@ -551,7 +632,7 @@ int main() {
     auto wheel   = GetMouseWheelMove();
 
     if (wheel != 0) {
-      Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), state->camera);
+      vec2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), state->camera);
 
       state->camera.offset = GetMousePosition();
       state->camera.target = mouseWorldPos;
@@ -562,7 +643,7 @@ int main() {
       if (state->camera.zoom >= 100) state->camera.zoom = 100.0f;
     }
 
-    Vector2 delta = prevMousePos - thisPos;
+    vec2 delta = prevMousePos - thisPos;
     prevMousePos = thisPos;
 
     if (IsMouseButtonDown(0)) {
@@ -621,12 +702,12 @@ int main() {
         }
 
         // Tools::LINE
-          if (IsKeyDown( KEY_A ) && !(state->check_tools(Tools::LINE))) {
+          if (IsKeyDown( KEY_S ) && !(state->check_tools(Tools::LINE))) {
             state->activate_tools(Tools::LINE);
             state->update_last_line_first_point(GetScreenToWorld2D(thisPos, state->camera));
           }
 
-          if (IsKeyUp( KEY_A ) && state->check_tools(Tools::LINE)) state->deactivate_tools(Tools::LINE);
+          if (IsKeyUp( KEY_S ) && state->check_tools(Tools::LINE)) state->deactivate_tools(Tools::LINE);
 
           if (state->check_tools(Tools::LINE)) {
             state->update_last_line_second_point(GetScreenToWorld2D(thisPos, state->camera));
@@ -637,6 +718,25 @@ int main() {
             }
 
             if (IsMouseButtonPressed(1)) state->remove_line();
+          }
+
+        // Tools::ARROW
+          if (IsKeyDown( KEY_A ) && !(state->check_tools(Tools::ARROW))) {
+            state->activate_tools(Tools::ARROW);
+            state->update_last_arrow_first_point(GetScreenToWorld2D(thisPos, state->camera));
+          }
+
+          if (IsKeyUp( KEY_A ) && state->check_tools(Tools::ARROW)) state->deactivate_tools(Tools::ARROW);
+
+          if (state->check_tools(Tools::ARROW)) {
+            state->update_last_arrow_second_point(GetScreenToWorld2D(thisPos, state->camera));
+
+            if (IsMouseButtonPressed(0)) {
+              state->add_new_arrow();
+              state->deactivate_tools(Tools::ARROW);
+            }
+
+            if (IsMouseButtonPressed(1)) state->remove_arrow();
           }
 
         // Tools::RECTANGLE
@@ -665,13 +765,15 @@ int main() {
           ->draw_selection_box()
           ->draw_crosshairs()
           ->draw_lines()
+          ->draw_arrows()
           ->draw_rectangles();
       EndMode2D();
 
       #ifdef DEBUG
       state->draw_debug_line();
-      state->draw_tool_pallete();
       #endif
+
+      state->draw_tool_pallete();
     EndDrawing();
   }
 
