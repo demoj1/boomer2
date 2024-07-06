@@ -43,6 +43,8 @@
     ((byte) & 0x01 ? '1' : '0')
 //-Macros
 
+using namespace std;
+
 //+Extends default
   using vec2 = Vector2;
 
@@ -81,9 +83,41 @@
         sizes.y
     };
   }
-//-Extends default
 
-using namespace std;
+  void DrawCrosshair(pair<vec2, vec2>&& l1, pair<vec2, vec2>&& l2, float thick = 3, Color color = MAGENTA) {
+    DrawLineEx( l1.first, l1.second, thick, color );
+    DrawLineEx( l2.first, l2.second, thick, color );
+  }
+
+  void DrawArrow(pair<vec2, vec2>&& line, float thick = 5, Color color = MAGENTA) {
+    DrawLineEx(
+      line.first,
+      line.second,
+      thick,
+      color
+    );
+
+    vec2 v = Vector2Normalize(line.second - line.first);
+    auto a_ = Vector2Rotate(v,  -PI/0.30);
+    auto b_ = Vector2Rotate(v,   PI/0.30);
+
+    a_ = Vector2MultiplyValue(Vector2Normalize(a_ - v), 40.0f) + line.second;
+    b_ = Vector2MultiplyValue(Vector2Normalize(b_ - v), 40.0f) + line.second;
+
+    DrawLineEx(
+      { a_.x, a_.y },
+      { line.second.x, line.second.y },
+      thick,
+      color
+    );
+    DrawLineEx(
+      { b_.x, b_.y },
+      { line.second.x, line.second.y },
+      thick,
+      color
+    );
+  }
+//-Extends default
 
 static Font font;
 
@@ -288,18 +322,15 @@ struct State {
     for (auto& c : crosshairs) {
       if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
 
-      DrawLineEx(
-        { 0, c.y },
-        { (float)screenshot_texture.width, c.y},
-        3,
-        MAGENTA
-      );
-
-      DrawLineEx(
-        { c.x, 0 },
-        { c.x, (float)screenshot_texture.height},
-        3,
-        MAGENTA
+      DrawCrosshair(
+        {
+          { 0, c.y },
+          { (float)screenshot_texture.width, c.y},
+        },
+        {
+          { c.x, 0 },
+          { c.x, (float)screenshot_texture.height}
+        }
       );
     }
 
@@ -329,32 +360,7 @@ struct State {
         if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
         if (!fp.has_value() || !sp.has_value()) break;
 
-        DrawLineEx(
-          { fp->x, fp->y },
-          { sp->x, sp->y },
-          5,
-          MAGENTA
-        );
-
-        vec2 v = Vector2Normalize(*sp - *fp);
-        auto a_ = Vector2Rotate(v,  -PI/0.30);
-        auto b_ = Vector2Rotate(v,   PI/0.30);
-
-        a_ = Vector2MultiplyValue(Vector2Normalize(a_ - v), 45.0f) + *sp;
-        b_ = Vector2MultiplyValue(Vector2Normalize(b_ - v), 45.0f) + *sp;
-
-        DrawLineEx(
-          a_,
-          *sp,
-          7,
-          MAGENTA
-        );
-        DrawLineEx(
-          b_,
-          *sp,
-          7,
-          MAGENTA
-        );
+        DrawArrow(pair<vec2, vec2>( *fp, *sp ));
       }
 
       return this;
@@ -505,85 +511,59 @@ struct State {
           -height,
         }, {0, 0}, {255, 255, 255, 255});
 
-          int i = 0;
-          for (auto& c : crosshairs) {
-            if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
-            auto selection_pos = c - *min_point;
+        int i = 0;
+        for (auto& c : crosshairs) {
+          if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
+          auto selection_pos = c - *min_point;
 
-            DrawLineEx(
+          DrawCrosshair(
+            {
               { 0,     height - selection_pos.y },
               { width, height - selection_pos.y },
-              3,
-              MAGENTA
-            );
-
-            DrawLineEx(
+            },
+            {
               { selection_pos.x, 0},
               { selection_pos.x, height },
-              3,
-              MAGENTA
-            );
-          }
+            }
+          );
+        }
 
-          i = 0;
-          for (auto& [f, s] : lines) {
-            if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
-            auto f_ = *f - *min_point;
-            auto s_ = *s - *min_point;
+        i = 0;
+        for (auto& [f, s] : lines) {
+          if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
+          auto f_ = *f - *min_point;
+          auto s_ = *s - *min_point;
 
-            DrawLineEx(
-              { f_.x, height - f_.y },
-              { s_.x, height - s_.y },
-              5,
-              MAGENTA
-            );
-          }
+          DrawLineEx(
+            { f_.x, height - f_.y },
+            { s_.x, height - s_.y },
+            5,
+            MAGENTA
+          );
+        }
 
-          i = 0;
-          for (auto& [f, s] : rectangles) {
-            if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
-            auto f_ = *f - *min_point;
-            auto s_ = *s - *min_point;
+        i = 0;
+        for (auto& [f, s] : rectangles) {
+          if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
+          auto f_ = *f - *min_point;
+          auto s_ = *s - *min_point;
 
-            DrawRectangleRoundedLines(rect_from_vectors(
-              { f_.x, height - f_.y },
-              { s_.x, height - s_.y }
-            ), 0.05, 10, 5, MAGENTA);
-          }
+          DrawRectangleRoundedLines(rect_from_vectors(
+            { f_.x, height - f_.y },
+            { s_.x, height - s_.y }
+          ), 0.05, 10, 5, MAGENTA);
+        }
 
-          i = 0;
-          for (auto& [f, s] : arrows) {
-            if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
-            auto f_ = *f - *min_point;
-            auto s_ = *s - *min_point;
+        i = 0;
+        for (auto& [f, s] : arrows) {
+          if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
+          auto f_ = *f - *min_point;
+          auto s_ = *s - *min_point;
+          f_.y = height - f_.y;
+          s_.y = height - s_.y;
 
-            DrawLineEx(
-              { f_.x, height - f_.y },
-              { s_.x, height - s_.y },
-              5,
-              MAGENTA
-            );
-
-            vec2 v = Vector2Normalize(s_ - f_);
-            auto a_ = Vector2Rotate(v,  -PI/0.30);
-            auto b_ = Vector2Rotate(v,   PI/0.30);
-
-            a_ = Vector2MultiplyValue(Vector2Normalize(a_ - v), 45.0f) + s_;
-            b_ = Vector2MultiplyValue(Vector2Normalize(b_ - v), 45.0f) + s_;
-
-            DrawLineEx(
-              { a_.x, height - a_.y },
-              { s_.x, height - s_.y },
-              7,
-              MAGENTA
-            );
-            DrawLineEx(
-              { b_.x, height - b_.y },
-              { s_.x, height - s_.y },
-              7,
-              MAGENTA
-            );
-          }
+          DrawArrow(pair<vec2, vec2>( f_, s_ ));
+        }
       EndTextureMode();
     EndDrawing();
 
