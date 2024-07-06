@@ -786,9 +786,8 @@ int main() {
 
       #ifdef DEBUG
       state->draw_debug_line();
-      #endif
-
       state->draw_tool_pallete();
+      #endif
     EndDrawing();
   }
 
