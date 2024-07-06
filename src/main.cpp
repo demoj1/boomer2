@@ -48,20 +48,35 @@ using namespace std;
 //+Extends default
   using vec2 = Vector2;
 
-  inline bool operator==(const vec2& l, const vec2& r) noexcept { return l.x == r.x && l.y == r.y; }
-  inline vec2 operator-(const vec2& l, const vec2& r) noexcept { return Vector2Subtract(l, r); }
-  inline vec2 operator-(const vec2& l, const float& r) noexcept { return Vector2SubtractValue(l, r); }
-  inline vec2 operator+(const vec2& l, const vec2& r) noexcept { return Vector2Add(l, r); }
-  inline vec2 operator+(const vec2& l, const float& r) noexcept { return Vector2AddValue(l, r); }
+  inline bool operator==(const vec2& l, const vec2& r)
+  noexcept { return l.x == r.x && l.y == r.y; }
+
+  inline vec2 operator-(const vec2& l, const vec2& r)
+  noexcept { return Vector2Subtract(l, r); }
+
+  inline vec2 operator-(const vec2& l, const float& r)
+  noexcept { return Vector2SubtractValue(l, r); }
+
+  inline vec2 operator+(const vec2& l, const vec2& r)
+  noexcept { return Vector2Add(l, r); }
+
+  inline vec2 operator+(const vec2& l, const float& r)
+  noexcept { return Vector2AddValue(l, r); }
+
   inline vec2& round(vec2& l) noexcept {
     l.x = round(l.x);
     l.y = round(l.y);
     return l;
   }
 
-  inline vec2 Vector2AddXValue(vec2 v, float val) { return { v.x + val, v.y }; }
-  inline vec2 Vector2AddYValue(vec2 v, float val) { return { v.x, v.y + val }; }
-  inline vec2 Vector2MultiplyValue(vec2 v, float val) { return { v.x * val, v.y * val }; }
+  inline vec2 Vector2AddXValue(vec2 v, float val)
+  noexcept { return { v.x + val, v.y }; }
+
+  inline vec2 Vector2AddYValue(vec2 v, float val)
+  noexcept { return { v.x, v.y + val }; }
+
+  inline vec2 Vector2MultiplyValue(vec2 v, float val)
+  noexcept { return { v.x * val, v.y * val }; }
 
   Rectangle rect_from_vectors(vec2 first_point, vec2 second_point) noexcept {
     vec2 min_point = {
@@ -84,12 +99,21 @@ using namespace std;
     };
   }
 
-  void DrawCrosshair(pair<vec2, vec2>&& l1, pair<vec2, vec2>&& l2, float thick = 3, Color color = MAGENTA) {
+  void DrawCrosshair(
+    pair<vec2, vec2>&& l1,
+    pair<vec2, vec2>&& l2,
+    float thick = 3,
+    Color color = MAGENTA
+  ) noexcept {
     DrawLineEx( l1.first, l1.second, thick, color );
     DrawLineEx( l2.first, l2.second, thick, color );
   }
 
-  void DrawArrow(pair<vec2, vec2>&& line, float thick = 5, Color color = MAGENTA) {
+  void DrawArrow(
+    pair<vec2, vec2>&& line,
+    float thick = 5,
+    Color color = MAGENTA
+  ) noexcept {
     DrawLineEx(
       line.first,
       line.second,
@@ -150,16 +174,28 @@ struct State {
   vector<pair<optional<vec2>, optional<vec2>>> arrows = {};
   vector<pair<optional<vec2>, optional<vec2>>> rectangles = {};
 
-  inline State* activate_tools(Tools tool) { this->tools |= tool; return this; }
-  inline State* deactivate_tools(Tools tool) { this->tools &= ~tool; return this; }
-  inline State* reset_tools() { this->tools = 0; return this; }
-  inline bool toggle_tools(Tools tool) { this->tools ^= tool; return this->tools & tool; }
-  inline bool check_tools(Tools tool) { return this->tools & tool; }
+  inline State* activate_tools(Tools tool)
+  noexcept { this->tools |= tool; return this; }
 
-  inline uint swidth() { return this->screen_size.first; }
-  inline uint sheight() { return this->screen_size.second; }
+  inline State* deactivate_tools(Tools tool)
+  noexcept { this->tools &= ~tool; return this; }
 
-  State* _recalc_min_max_points() {
+  inline State* reset_tools()
+  noexcept { this->tools = 0; return this; }
+
+  inline bool toggle_tools(Tools tool)
+  noexcept { this->tools ^= tool; return this->tools & tool; }
+
+  inline bool check_tools(Tools tool)
+  noexcept { return this->tools & tool; }
+
+  inline uint swidth()
+  noexcept { return this->screen_size.first; }
+
+  inline uint sheight()
+  noexcept { return this->screen_size.second; }
+
+  State* _recalc_min_max_points() noexcept {
     min_point = {
       min(first_point->x, second_point->x),
       min(first_point->y, second_point->y),
@@ -206,10 +242,10 @@ struct State {
       ->_recalc_min_max_points();
   }
 
-  State* set_first_point(vec2 p) { return _set_point(p, &first_point, &second_point); }
-  State* set_second_point(vec2 p) { return _set_point(p, &second_point, &first_point); }
+  State* set_first_point(vec2 p) noexcept { return _set_point(p, &first_point, &second_point); }
+  State* set_second_point(vec2 p) noexcept { return _set_point(p, &second_point, &first_point); }
 
-  State* draw_shading() {
+  State* draw_shading() noexcept {
     if (!this->first_point.has_value() || !this->second_point.has_value()) return this;
     if (*this->first_point == *this->second_point) return this;
 
@@ -233,7 +269,7 @@ struct State {
     return this;
   }
 
-  State* draw_selection_box() {
+  State* draw_selection_box() noexcept {
     if (!min_point.has_value() || !max_point.has_value()) return this;
     auto size = *max_point - *min_point;
 
@@ -317,7 +353,7 @@ struct State {
     return this;
   }
 
-  State* draw_crosshairs() {
+  State* draw_crosshairs() noexcept {
     int i = 0;
     for (auto& c : crosshairs) {
       if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
@@ -337,7 +373,7 @@ struct State {
     return this;
   }
 
-  State* draw_lines() {
+  State* draw_lines() noexcept {
       int i = 0;
       for (auto& [fp, sp] : lines) {
         if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
@@ -354,7 +390,7 @@ struct State {
       return this;
   }
 
-  State* draw_arrows() {
+  State* draw_arrows() noexcept {
       int i = 0;
       for (auto& [fp, sp] : arrows) {
         if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
@@ -366,7 +402,7 @@ struct State {
       return this;
   }
 
-  State* draw_rectangles() {
+  State* draw_rectangles() noexcept {
       int i = 0;
       for (auto& [fp, sp] : rectangles) {
         if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
@@ -379,7 +415,7 @@ struct State {
   }
 
 
-  State* update_last_rectangle_first_point(vec2 l) {
+  State* update_last_rectangle_first_point(vec2 l) noexcept {
     if (rectangles.size() < 1) rectangles.push_back({});
 
     auto& last_rectangle = rectangles.back();
@@ -388,7 +424,7 @@ struct State {
     return this;
   }
 
-  State* update_last_rectangle_second_point(vec2 l) {
+  State* update_last_rectangle_second_point(vec2 l) noexcept {
     if (rectangles.size() < 1) rectangles.push_back({});
     round(l);
 
@@ -398,18 +434,18 @@ struct State {
     return this;
   }
 
-  State* add_new_rectangle() {
+  State* add_new_rectangle() noexcept {
     rectangles.push_back({});
     return this;
   }
 
-  State* remove_rectangle() {
+  State* remove_rectangle() noexcept {
     if (rectangles.size() > 0) rectangles.pop_back();
     return this;
   }
 
 
-  State* update_last_line_first_point(vec2 l) {
+  State* update_last_line_first_point(vec2 l) noexcept {
     if (lines.size() < 1) lines.push_back({});
     auto& last_line = lines.back();
 
@@ -417,7 +453,7 @@ struct State {
     return this;
   }
 
-  State* update_last_line_second_point(vec2 l) {
+  State* update_last_line_second_point(vec2 l) noexcept {
     if (lines.size() < 1) lines.push_back({});
     auto& last_line = lines.back();
 
@@ -425,18 +461,18 @@ struct State {
     return this;
   }
 
-  State* add_new_line() {
+  State* add_new_line() noexcept {
     lines.push_back({});
     return this;
   }
 
-  State* remove_line() {
+  State* remove_line() noexcept {
     if (lines.size() > 0) lines.pop_back();
     return this;
   }
 
 
-  State* update_last_arrow_first_point(vec2 l) {
+  State* update_last_arrow_first_point(vec2 l) noexcept {
     if (arrows.size() < 1) arrows.push_back({});
     auto& last_arrow = arrows.back();
 
@@ -444,7 +480,7 @@ struct State {
     return this;
   }
 
-  State* update_last_arrow_second_point(vec2 l) {
+  State* update_last_arrow_second_point(vec2 l) noexcept {
     if (arrows.size() < 1) arrows.push_back({});
     auto& last_arrow = arrows.back();
 
@@ -452,29 +488,29 @@ struct State {
     return this;
   }
 
-  State* add_new_arrow() {
+  State* add_new_arrow() noexcept {
     arrows.push_back({});
     return this;
   }
 
-  State* remove_arrow() {
+  State* remove_arrow() noexcept {
     if (arrows.size() > 0) arrows.pop_back();
     return this;
   }
 
 
-  State* update_last_crosshair(vec2 v) {
+  State* update_last_crosshair(vec2 v) noexcept {
     if (crosshairs.size() < 1) crosshairs.push_back({});
     crosshairs.back() = round(v);
     return this;
   }
 
-  State* add_new_crosshair() {
+  State* add_new_crosshair() noexcept {
     crosshairs.push_back({});
     return this;
   }
 
-  State* remove_crosshair() {
+  State* remove_crosshair() noexcept {
     if (crosshairs.size() > 0) crosshairs.pop_back();
     return this;
   }
@@ -586,7 +622,6 @@ int main() {
 #endif
 
   InitWindow(state->swidth(), state->sheight(), "_");
-  // SetExitKey(0);
   SetWindowFocused();
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
 
