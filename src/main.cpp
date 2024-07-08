@@ -197,13 +197,13 @@ struct State {
 
   State* _recalc_min_max_points() noexcept {
     min_point = {
-      min(first_point->x, second_point->x),
-      min(first_point->y, second_point->y),
+      min(round(first_point->x), round(second_point->x)),
+      min(round(first_point->y), round(second_point->y)),
     };
 
     max_point = {
-      max(first_point->x, second_point->x),
-      max(first_point->y, second_point->y),
+      max(round(first_point->x), round(second_point->x)),
+      max(round(first_point->y), round(second_point->y)),
     };
 
     return this;
@@ -253,14 +253,14 @@ struct State {
     const Color color = {10, 10, 10, alpha};
 
     const vec2 points[] = {
-      { 0                           , 0                        },
-      { min_point->x                , (float)sheight()         },
-      { min_point->x                , 0                        },
-      { swidth() - min_point->x     , min_point->y             },
-      { max_point->x                , min_point->y             },
-      { swidth() - max_point->x     , sheight() - min_point->y },
-      { min_point->x                , max_point->y             },
-      { max_point->x - min_point->x , sheight() - max_point->y },
+      { 0                              , 0                        },
+      { min_point->x                   , (float)sheight()         },
+      { min_point->x                   , 0                        },
+      { (float)swidth() - min_point->x , min_point->y             },
+      { max_point->x                   , min_point->y             },
+      { (float)swidth() - max_point->x , (float)sheight() - min_point->y },
+      { min_point->x                   , max_point->y             },
+      { max_point->x - min_point->x    , (float)sheight() - max_point->y },
     };
 
     for (int i = 0; i < 8; i += 2)
@@ -271,9 +271,8 @@ struct State {
 
   State* draw_selection_box() noexcept {
     if (!min_point.has_value() || !max_point.has_value()) return this;
-    auto size = *max_point - *min_point;
 
-    DrawRectangleLinesEx( { min_point->x, min_point->y, size.x, size.y }, 2 / camera.zoom, BLUE );
+    DrawRectangleLinesEx( rect_from_vectors(round(*first_point), round(*second_point)), 2 / camera.zoom, BLUE );
 
     if (select_area_in_progress) {
       const vec2 points[] = {
