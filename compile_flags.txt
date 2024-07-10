@@ -1,5 +1,10 @@
 -std=c++2b
 -lX11
 -lraylib
+-lxcb
+-fopenmp=libomp
+-flto
+-g
 -march=native
+-DXCB_SCREENSHOT
 -O3
