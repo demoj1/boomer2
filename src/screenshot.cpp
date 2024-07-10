@@ -6,6 +6,11 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
+#ifdef DEBUG
+  #include <chrono>
+  #include <iostream>
+#endif
+
 void raise_window(uint* handle) {
   auto display = XOpenDisplay(NULL);
   XRaiseWindow(display, *handle);
@@ -49,17 +54,34 @@ u_char* take_screenshot(std::pair<uint, uint> display_size)
   ulong rmask = image->red_mask;
   ulong gmask = image->green_mask;
   ulong bmask = image->blue_mask;
-  uint ii = 0;
 
+  #ifdef DEBUG
+    std::cout << "rmask: " << rmask << std::endl
+      << "gmask: " << gmask << std::endl
+      << "bmask: " << bmask << std::endl;
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+  #endif
+
+  #pragma omp parallel for
   for (uint y = 0; y < display_size.second; y++) {
     for (uint x = 0; x < display_size.first; x++) {
       unsigned long pixel = XGetPixel(image, x, y);
+      auto ii = y*display_size.first * 3 + x*3;
 
-      data[ii++] = (pixel & rmask) >> 16;
-      data[ii++] = (pixel & gmask) >> 8;
-      data[ii++] = (pixel & bmask) >> 0;
+      data[ ii + 0 ] = (pixel & rmask) >> 16;
+      data[ ii + 1 ] = (pixel & gmask) >> 8;
+      data[ ii + 2 ] = (pixel & bmask) >> 0;
     }
   }
+
+  #ifdef DEBUG
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto time = end_time - start_time;
+
+    std::cout << "--------> took: " << time/std::chrono::milliseconds(1) << "ms.\n";
+    fflush(stdout);
+  #endif
 
   XCloseDisplay(display);
   XDestroyImage(image);

@@ -5,7 +5,7 @@ STD=-std=c++2b
 WARNINGS=-Wall -Wextra -Wpedantic -Wno-unused-command-line-argument -Wno-missing-field-initializers -Wno-gnu-zero-variadic-macro-arguments -Wno-c99-extensions
 SANITIZERS=-fdebug-macro -fsanitize=address -fstack-protector -fstack-protector-strong -fstack-protector-all -Rpass=inline -Rpass=unroll -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
 LIBS=-lX11 -lraylib
-CXXFLAGS=$(WARNINGS) -march=native -flto -Ofast
+CXXFLAGS=$(WARNINGS) -march=native -flto -Ofast -fopenmp=libomp
 CMD=$(CXX) $(STD) $(CXXFLAGS) $(LIBS)
 
 OBJ_PREFIX=objs
@@ -22,7 +22,7 @@ run: exe
 install: exe
 	cp $(OUT) ~/.local/bin/$(OUT_NAME)
 
-debug: export CXXFLAGS=$(WARNINGS) $(SANITIZERS) -fno-omit-frame-pointer -flto -g -DDEBUG
+debug: export CXXFLAGS=$(WARNINGS) $(SANITIZERS) -fno-omit-frame-pointer -flto -g -fopenmp=libomp -DDEBUG
 debug: export OUT_POSTFIX=debug
 debug: export ASAN_OPTIONS=detect_leaks=1
 debug: export LSAN_OPTIONS=suppressions=address-sanitizer-suppress, print_suppressions=0, fast_unwind_on_malloc=0
