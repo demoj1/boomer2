@@ -28,6 +28,12 @@
     #define LOG(__format_string, ...) {}
   #endif
 
+  #ifdef BENCH
+    #define __BENCH 1
+  #else
+    #define __BENCH 0
+  #endif
+
   #define FF "(%06.1f; %06.1f)"
   #define F(v) v.x, v.y
 
@@ -611,18 +617,22 @@ static State* state = new State{};
 int main() {
   state->screen_size = get_screen_size();
   auto load_screenshot_thread = std::thread([]() { state->screenshot_data = take_screenshot(state->screen_size); });
+  state->screenshot_data = take_screenshot(state->screen_size);
   std::thread export_thread;
 
-  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT);
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_TOPMOST | FLAG_WINDOW_UNDECORATED);
   SetTargetFPS(80);
 
 #ifndef DEBUG
   SetTraceLogLevel(LOG_ERROR);
 #endif
 
-  InitWindow(state->swidth(), state->sheight(), "_");
+  InitWindow(state->swidth(), state->sheight(), "boomer2");
   SetWindowFocused();
+  SetWindowState(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_TOPMOST | FLAG_WINDOW_UNDECORATED);
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
+
+  void* handle = GetWindowHandle();
 
   font = LoadFont_Terminus();
 
@@ -678,7 +688,7 @@ int main() {
         if (IsMouseButtonPressed(1)) state->remove_crosshair();
       } else { state->deactivate_tools(Tools::CROSSHAIR); }
 
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_C)) {
+    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_C) || __BENCH) {
       auto image = state->render_screenshot_and_close();
 
       export_thread = std::thread([image]() {
@@ -783,10 +793,10 @@ int main() {
           ->draw_rectangles();
       EndMode2D();
 
-      #ifdef DEBUG
+    #ifdef DEBUG
       state->draw_debug_line();
       state->draw_tool_pallete();
-      #endif
+    #endif
     EndDrawing();
   }
 
