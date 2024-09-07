@@ -14,7 +14,7 @@
 #include <vector>
 
 #include "font.h"
-#include "screenshot.h"
+#include "platform.h"
 
 //+Macros
   static int __COUNTER = -1;
@@ -613,14 +613,14 @@ struct State {
 };
 
 static State* state = new State{};
+static bool raise = true;
 
 int main() {
   state->screen_size = get_screen_size();
   auto load_screenshot_thread = std::thread([]() { state->screenshot_data = take_screenshot(state->screen_size); });
-  state->screenshot_data = take_screenshot(state->screen_size);
   std::thread export_thread;
 
-  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_TOPMOST | FLAG_WINDOW_UNDECORATED);
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_UNDECORATED);
   SetTargetFPS(80);
 
 #ifndef DEBUG
@@ -628,11 +628,7 @@ int main() {
 #endif
 
   InitWindow(state->swidth(), state->sheight(), "boomer2");
-  SetWindowFocused();
-  SetWindowState(FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT | FLAG_WINDOW_TOPMOST | FLAG_WINDOW_UNDECORATED);
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
-
-  void* handle = GetWindowHandle();
 
   font = LoadFont_Terminus();
 
@@ -688,7 +684,7 @@ int main() {
         if (IsMouseButtonPressed(1)) state->remove_crosshair();
       } else { state->deactivate_tools(Tools::CROSSHAIR); }
 
-    if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_C) || __BENCH) {
+    if (IsKeyPressed(KEY_ENTER) || (IsKeyDown(KEY_C) && !IsKeyDown(KEY_LEFT_SHIFT)) || __BENCH) {
       auto image = state->render_screenshot_and_close();
 
       export_thread = std::thread([image]() {
@@ -705,17 +701,29 @@ int main() {
       goto close;
     }
 
+    // raise_window(true);
     BeginDrawing();
       ClearBackground((Color){0, 42, 90, 255});
 
       BeginMode2D(state->camera);
         DrawTexture(state->screenshot_texture, 0, 0, WHITE);
 
+        if (IsKeyPressed(KEY_TAB) && state->min_point.has_value() && state->max_point.has_value()) {
+          auto max_point = state->max_point.value();
+          auto min_point = state->min_point.value();
+
+          auto width  = (max_point.x - min_point.x) * state->camera.zoom;
+          auto height = (max_point.y - min_point.y) * state->camera.zoom;
+
+          state->camera.target = min_point;
+          SetWindowSize((int)width, (int)height);
+        }
+
         if (IsMouseButtonDown(1) && IsKeyUp(KEY_LEFT_SHIFT)) {
           if (!state->select_area_in_progress) state->first_point = nullopt;
-          state->select_area_in_progress = true;
           if (!state->first_point.has_value()) state->set_first_point(GetScreenToWorld2D(thisPos, state->camera));
 
+          state->select_area_in_progress = true;
           state->set_second_point(GetScreenToWorld2D(thisPos, state->camera));
         } else {
           state->select_area_in_progress = false;
