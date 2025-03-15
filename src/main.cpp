@@ -278,7 +278,22 @@ struct State {
 
   State* draw_selection_box() noexcept {
     if (!min_point.has_value() || !max_point.has_value()) return this;
+    if (*max_point == *min_point) return this;
 
+    static char text[250];
+    snprintf(
+      text,
+      sizeof(text),
+      "w: %d, h: %d, pixels: %d",
+      (int)round(*max_point).x - (int)round(*min_point).x,
+      (int)round(*max_point).y - (int)round(*min_point).y,
+      (int)((round(*max_point).x - round(*min_point).x) * (round(*max_point).y - round(*min_point).y))
+    );
+
+    auto point = round(*min_point);
+    point.y -= (28.0 + 1.0)/camera.zoom;
+
+    DrawTextEx(font, text, point, 28.0 / camera.zoom, 1.0/camera.zoom, GREEN);
     DrawRectangleLinesEx(
       rect_from_vectors(round(*first_point), round(*second_point)),
       2 / camera.zoom,
