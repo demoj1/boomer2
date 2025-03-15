@@ -17,9 +17,10 @@
 #include "platform.h"
 
 //+Macros
-  static int __COUNTER = -1;
 
   #ifdef DEBUG
+    static int __COUNTER = -1;
+
     #define LOG(__format_string, ...) do { \
       printf("%s:%d (%s)@%d : " __format_string, __FILE__, __LINE__, __FUNCTION__, ++__COUNTER, ##__VA_ARGS__); \
       fflush(stdout); \
@@ -278,7 +279,11 @@ struct State {
   State* draw_selection_box() noexcept {
     if (!min_point.has_value() || !max_point.has_value()) return this;
 
-    DrawRectangleLinesEx( rect_from_vectors(round(*first_point), round(*second_point)), 2 / camera.zoom, BLUE );
+    DrawRectangleLinesEx(
+      rect_from_vectors(round(*first_point), round(*second_point)),
+      2 / camera.zoom,
+      BLUE
+    );
 
     if (select_area_in_progress) {
       const vec2 points[] = {
@@ -301,7 +306,7 @@ struct State {
 
   State* draw_tool_pallete() {
     const auto radius = 20;
-    const auto space = radius * count_tools;
+    // const auto space = radius * count_tools;
 
     for (int i = 0; i < count_tools; i++) {
       const float x = GetMousePosition().x + cos(i) * radius*4;
@@ -336,9 +341,11 @@ struct State {
       "Mouse to texture: " FF ", "
       "Mouse into selection: " FF ", "
       "FPS: %d, "
-      "Tools: " BINARY_F
-      "\n\n"
-      "Last rectangle: [" FF ", " FF "], Crosshair: " FF,
+      "Tools: " BINARY_F "\n\n"
+      "Last rectangle: [" FF ", " FF "], Crosshair: " FF
+      ", Min selection point: " FF
+      ", Camera target: " FF
+      ", Camera zoom: %f",
       F(GetMousePosition()),
       F(texture_pos),
       F(selection_pos),
@@ -349,7 +356,11 @@ struct State {
       rectangles.size() > 0 ? rectangles.back().second->x : 0.0,
       rectangles.size() > 0 ? rectangles.back().second->y : 0.0,
       crosshairs.size() > 0 ? crosshairs.back().x : 0.0,
-      crosshairs.size() > 0 ? crosshairs.back().y : 0.0
+      crosshairs.size() > 0 ? crosshairs.back().y : 0.0,
+      min_point.has_value() ? min_point.value().x : 0.0,
+      min_point.has_value() ? min_point.value().y : 0.0,
+      F(camera.target),
+      camera.zoom
     );
 
     DrawRectangle(0, 0, swidth(), 80, {40, 40, 40, 150});
@@ -359,7 +370,7 @@ struct State {
   }
 
   State* draw_crosshairs() noexcept {
-    int i = 0;
+    size_t i = 0;
     for (auto& c : crosshairs) {
       if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
 
@@ -379,7 +390,7 @@ struct State {
   }
 
   State* draw_lines() noexcept {
-      int i = 0;
+      size_t i = 0;
       for (auto& [fp, sp] : lines) {
         if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -396,7 +407,7 @@ struct State {
   }
 
   State* draw_arrows() noexcept {
-      int i = 0;
+      size_t i = 0;
       for (auto& [fp, sp] : arrows) {
         if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -408,7 +419,7 @@ struct State {
   }
 
   State* draw_rectangles() noexcept {
-      int i = 0;
+      size_t i = 0;
       for (auto& [fp, sp] : rectangles) {
         if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -552,7 +563,7 @@ struct State {
           -height,
         }, {0, 0}, {255, 255, 255, 255});
 
-        int i = 0;
+        size_t i = 0;
         for (auto& c : crosshairs) {
           if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
           auto selection_pos = c - *min_point;
@@ -613,7 +624,6 @@ struct State {
 };
 
 static State* state = new State{};
-static bool raise = true;
 
 int main() {
   state->screen_size = get_screen_size();
@@ -705,19 +715,22 @@ int main() {
     BeginDrawing();
       ClearBackground((Color){0, 42, 90, 255});
 
-      BeginMode2D(state->camera);
-        DrawTexture(state->screenshot_texture, 0, 0, WHITE);
+        if (IsKeyDown(KEY_X) && state->min_point.has_value() && state->max_point.has_value()) {
+          auto& camera = state->camera;
 
-        if (IsKeyPressed(KEY_TAB) && state->min_point.has_value() && state->max_point.has_value()) {
           auto max_point = state->max_point.value();
           auto min_point = state->min_point.value();
 
-          auto width  = (max_point.x - min_point.x) * state->camera.zoom;
-          auto height = (max_point.y - min_point.y) * state->camera.zoom;
+          auto width  = (max_point.x - min_point.x) * camera.zoom;
+          auto height = (max_point.y - min_point.y) * camera.zoom;
 
-          state->camera.target = min_point;
+          camera.offset = {0, 0};
+          camera.target = min_point;
           SetWindowSize((int)width, (int)height);
         }
+
+      BeginMode2D(state->camera);
+        DrawTexture(state->screenshot_texture, 0, 0, WHITE);
 
         if (IsMouseButtonDown(1) && IsKeyUp(KEY_LEFT_SHIFT)) {
           if (!state->select_area_in_progress) state->first_point = nullopt;

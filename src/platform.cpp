@@ -122,7 +122,7 @@ struct _color { u_char r, g, b; };
       ~0
     );
 
-    auto win_pixmap = xcb_generate_id(conn);
+    // auto win_pixmap = xcb_generate_id(conn);
     auto* image_reply = xcb_get_image_reply(conn, get_image_task, 0);
     size_t l = xcb_get_image_data_length(image_reply);
 

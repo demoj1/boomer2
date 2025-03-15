@@ -14,6 +14,7 @@ Tools:
     * Line (hotkey S)  
     * Rectangle (hotkey R)  
     * Arrow (hotkey A)
+    * Clip window for selection box (hotkey X)
 
 Features:
   * Good for screencast (zoom, crosshair)
