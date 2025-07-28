@@ -43,7 +43,7 @@ struct _color { u_char r, g, b; };
   #define NAME2(A,B)         NAME2_HELPER(A,B)
   #define NAME2_HELPER(A,B)  A ## B
   #define CHECK_ERR(CONN, BODY) do { \
-    xcb_generic_error_t* NAME2(NAME2(__ERROR__, _), __LINE__) = xcb_request_check(CONN, BODY); \
+    const xcb_generic_error_t* NAME2(NAME2(__ERROR__, _), __LINE__) = xcb_request_check(CONN, BODY); \
     if (NAME2(NAME2(__ERROR__, _), __LINE__)) asm("int $3"); \
   } while (0)
 
@@ -166,7 +166,7 @@ struct _color { u_char r, g, b; };
     _color* data = new _color[w*h];
 
     // BGRA 8 bit
-    u_char* image_data = xcb_get_image_data(image_reply);
+    const u_char* image_data = xcb_get_image_data(image_reply);
 
     // Convert GBRA to RGBA
     for (size_t i = 0; i < l; i += 4) {

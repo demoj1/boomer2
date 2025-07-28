@@ -157,8 +157,9 @@ enum Tools {
   LINE      = 2,
   RECTANGLE = 4,
   ARROW     = 8,
+  BLUR_RECTANGLE = 16,
 };
-static int count_tools = 4;
+static int count_tools = 5;
 
 struct State {
   pair<uint, uint> screen_size;
@@ -180,6 +181,7 @@ struct State {
   vector<pair<optional<vec2>, optional<vec2>>> lines = {};
   vector<pair<optional<vec2>, optional<vec2>>> arrows = {};
   vector<pair<optional<vec2>, optional<vec2>>> rectangles = {};
+  vector<pair<optional<vec2>, optional<vec2>>> blur_rectangles = {};
 
   inline State* activate_tools(Tools tool)
   noexcept { this->tools |= tool; return this; }
@@ -339,6 +341,7 @@ struct State {
         case 1: DrawTextEx(font, "Li", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
         case 2: DrawTextEx(font, "Re", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
         case 3: DrawTextEx(font, "Ar", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
+        case 4: DrawTextEx(font, "Br", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
       }
     }
 
@@ -449,6 +452,24 @@ struct State {
       return this;
   }
 
+  State* draw_blur_rectangles() noexcept {
+      size_t i = 0;
+      for (auto& [fp, sp] : blur_rectangles) {
+        if (i++ == blur_rectangles.size() - 1 && !check_tools(Tools::BLUR_RECTANGLE)) break;
+        if (!fp.has_value() || !sp.has_value()) break;
+
+        auto width = max(round(fp->x), round(sp->x)) - min(round(fp->x), round(sp->x));
+        auto height = max(round(fp->y), round(sp->y)) - min(round(fp->y), round(sp->y));
+        auto min_x = min(round(fp->x), round(sp->x));
+        auto min_y = min(round(fp->y), round(sp->y));
+
+        auto image = GenImageWhiteNoise(width, height, 0.05);
+        auto texture = LoadTextureFromImage(image);
+        DrawTexture(texture, min_x, min_y, MAGENTA);
+      }
+
+      return this;
+  }
 
   State* update_last_rectangle_first_point(vec2 l) noexcept {
     if (rectangles.size() < 1) rectangles.push_back({});
@@ -469,6 +490,25 @@ struct State {
     return this;
   }
 
+  State* update_last_blur_rectangle_first_point(vec2 l) noexcept {
+    if (blur_rectangles.size() < 1) blur_rectangles.push_back({});
+
+    auto& last_blur_rectangle = blur_rectangles.back();
+
+    last_blur_rectangle.first = round(l);
+    return this;
+  }
+
+  State* update_last_blur_rectangle_second_point(vec2 l) noexcept {
+    if (blur_rectangles.size() < 1) blur_rectangles.push_back({});
+    round(l);
+
+    auto& last_blur_rectangle = blur_rectangles.back();
+
+    last_blur_rectangle.second = round(l);
+    return this;
+  }
+
   State* add_new_rectangle() noexcept {
     rectangles.push_back({});
     return this;
@@ -476,6 +516,16 @@ struct State {
 
   State* remove_rectangle() noexcept {
     if (rectangles.size() > 0) rectangles.pop_back();
+    return this;
+  }
+
+  State* add_new_blur_rectangle() noexcept {
+    blur_rectangles.push_back({});
+    return this;
+  }
+
+  State* remove_blur_rectangle() noexcept {
+    if (blur_rectangles.size() > 0) rectangles.pop_back();
     return this;
   }
 
@@ -583,7 +633,7 @@ struct State {
         }, {0, 0}, {255, 255, 255, 255});
 
         size_t i = 0;
-        for (auto& c : crosshairs) {
+        for (const auto& c : crosshairs) {
           if (i++ == crosshairs.size() - 1 && !check_tools(Tools::CROSSHAIR)) break;
           auto selection_pos = c - *min_point;
 
@@ -626,6 +676,22 @@ struct State {
         }
 
         i = 0;
+        for (auto& [f, s] : blur_rectangles) {
+          if (i++ == blur_rectangles.size() - 1 && !check_tools(Tools::BLUR_RECTANGLE)) break;
+          auto f_ = *f - *min_point;
+          auto s_ = *s - *min_point;
+
+          auto rect = rect_from_vectors(
+            { f_.x, height - f_.y },
+            { s_.x, height - s_.y }
+          );
+
+          auto image = GenImageWhiteNoise(rect.width, rect.height, 0.1);
+          auto texture = LoadTextureFromImage(image);
+          DrawTexture(texture, rect.x, rect.y, MAGENTA);
+        }
+
+        i = 0;
         for (auto& [f, s] : arrows) {
           if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
           auto f_ = *f - *min_point;
@@ -664,7 +730,7 @@ int main(int argc, char** argv) {
   std::thread export_thread;
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_UNDECORATED);
-  SetTargetFPS(80);
+  SetTargetFPS(70);
 
 #ifndef DEBUG
   SetTraceLogLevel(LOG_ERROR);
@@ -838,13 +904,35 @@ int main(int argc, char** argv) {
             if (IsMouseButtonPressed(1)) state->remove_rectangle();
           }
 
+        // Tools::BLUR_RECTANGLE
+          if (IsKeyDown( KEY_B ) && !(state->check_tools(Tools::BLUR_RECTANGLE))) {
+            state->activate_tools(Tools::BLUR_RECTANGLE);
+            LOG("Update first rect point before: " FF "\n", F(GetScreenToWorld2D(thisPos, state->camera)));
+            state->update_last_blur_rectangle_first_point(GetScreenToWorld2D(thisPos, state->camera));
+          }
+
+          if (IsKeyUp( KEY_B ) && state->check_tools(Tools::BLUR_RECTANGLE)) state->deactivate_tools(Tools::BLUR_RECTANGLE);
+
+          if (state->check_tools(Tools::BLUR_RECTANGLE)) {
+            LOG("Update last rect point before: " FF "\n", F(GetScreenToWorld2D(thisPos, state->camera)));
+            state->update_last_blur_rectangle_second_point(GetScreenToWorld2D(thisPos, state->camera));
+
+            if (IsMouseButtonPressed(0)) {
+              state->add_new_blur_rectangle();
+              state->deactivate_tools(Tools::BLUR_RECTANGLE);
+            }
+
+            if (IsMouseButtonPressed(1)) state->remove_blur_rectangle();
+          }
+
         state
           ->draw_shading()
+          ->draw_blur_rectangles()
+          ->draw_rectangles()
           ->draw_selection_box()
           ->draw_crosshairs()
           ->draw_lines()
-          ->draw_arrows()
-          ->draw_rectangles();
+          ->draw_arrows();
       EndMode2D();
 
     #ifdef DEBUG
