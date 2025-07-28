@@ -55,17 +55,17 @@ using namespace std;
 //+Extends default
   using vec2 = Vector2;
 
-  inline bool operator==(const vec2& l, const vec2& r)
-  noexcept { return l.x == r.x && l.y == r.y; }
+  // inline bool operator==(const vec2& l, const vec2& r)
+  // noexcept { return l.x == r.x && l.y == r.y; }
 
-  inline vec2 operator-(const vec2& l, const vec2& r)
-  noexcept { return Vector2Subtract(l, r); }
+  // inline vec2 operator-(const vec2& l, const vec2& r)
+  // noexcept { return Vector2Subtract(l, r); }
 
-  inline vec2 operator-(const vec2& l, const float& r)
-  noexcept { return Vector2SubtractValue(l, r); }
+  // inline vec2 operator-(const vec2& l, const float& r)
+  // noexcept { return Vector2SubtractValue(l, r); }
 
-  inline vec2 operator+(const vec2& l, const vec2& r)
-  noexcept { return Vector2Add(l, r); }
+  // inline vec2 operator+(const vec2& l, const vec2& r)
+  // noexcept { return Vector2Add(l, r); }
 
   inline vec2 operator+(const vec2& l, const float& r)
   noexcept { return Vector2AddValue(l, r); }
@@ -349,7 +349,11 @@ struct State {
     static char debug_buffer[2048];
 
     auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-    auto selection_pos = texture_pos - *first_point;
+    vec2 selection_pos;
+
+    if (first_point) {
+      selection_pos = texture_pos - *first_point;
+    }
 
     sprintf(debug_buffer,
       "Mouse: " FF ", "
@@ -439,7 +443,7 @@ struct State {
         if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
 
-        DrawRectangleRoundedLines(rect_from_vectors(*fp, *sp), 0.05, 10, 5, MAGENTA);
+        DrawRectangleRoundedLinesEx(rect_from_vectors(*fp, *sp), 0.05, 10, 5, MAGENTA);
       }
 
       return this;
@@ -615,7 +619,7 @@ struct State {
           auto f_ = *f - *min_point;
           auto s_ = *s - *min_point;
 
-          DrawRectangleRoundedLines(rect_from_vectors(
+          DrawRectangleRoundedLinesEx(rect_from_vectors(
             { f_.x, height - f_.y },
             { s_.x, height - s_.y }
           ), 0.05, 10, 5, MAGENTA);
@@ -640,9 +644,23 @@ struct State {
 
 static State* state = new State{};
 
-int main() {
-  state->screen_size = get_screen_size();
-  auto load_screenshot_thread = std::thread([]() { state->screenshot_data = take_screenshot(state->screen_size); });
+int main(int argc, char** argv) {
+  std::thread load_screenshot_thread;
+
+  if (argc > 1) {
+    auto [x, y, w, h] = get_window_dimensions_under_cursor();
+    state->screen_size = {w, h};
+    load_screenshot_thread = std::thread([=]() {
+      state->screenshot_data = take_screenshot({x, y, w, h});
+    });
+  } else {
+    state->screen_size = get_screen_size();
+    load_screenshot_thread = std::thread([]() {
+      auto [w, h] = state->screen_size;
+      state->screenshot_data = take_screenshot({0, 0, w, h});
+    });
+  }
+
   std::thread export_thread;
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_UNDECORATED);
@@ -682,7 +700,7 @@ int main() {
       state->camera.offset = GetMousePosition();
       state->camera.target = mouseWorldPos;
 
-      state->camera.zoom += wheel * log(state->camera.zoom + 0.9);
+      state->camera.zoom += wheel/3.0;
 
       if (state->camera.zoom <= 0.3f) state->camera.zoom = 0.3f;
       if (state->camera.zoom >= 100) state->camera.zoom = 100.0f;

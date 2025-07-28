@@ -1,24 +1,14 @@
 #include "platform.h"
+#include "prelude.h"
 
 #include <stdlib.h>
 #include <sys/types.h>
-
-#ifdef DEBUG
-  #include <chrono>
-  #include <iostream>
-
-  static int __COUNTER = -1;
-
-  #define LOG(__format_string, ...) do { \
-    printf("%s:%d (%s)@%d : " __format_string, __FILE__, __LINE__, __FUNCTION__, ++__COUNTER, ##__VA_ARGS__); \
-    fflush(stdout); \
-  } while (0)
-#else
-  #define LOG(__format_string, ...) {}
-#endif
+#include <chrono>
+#include <iostream>
 
 #ifdef XCB_SCREENSHOT
   #include <xcb/xcb.h>
+  #include <xcb/xproto.h>
 #else
   #include <X11/X.h>
   #include <X11/Xlib.h>
@@ -83,17 +73,59 @@ struct _color { u_char r, g, b; };
     free(focusReply);
   }
 
-  std::pair<uint, uint> get_screen_size() noexcept
-  {
+  std::pair<int16_t, int16_t> get_screen_size() noexcept {
     auto conn = xcb_conn();
     auto screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
 
-    std::pair<uint, uint> pair = {
+    std::pair<int16_t, int16_t> pair = {
       screen->width_in_pixels,
       screen->height_in_pixels,
     };
 
     return pair;
+  }
+
+  std::tuple<int16_t, int16_t, int16_t, int16_t> get_window_dimensions_under_cursor() noexcept {
+    std::tuple<int16_t, int16_t, int16_t, int16_t> result;
+
+    auto conn = xcb_conn();
+    auto screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
+
+    auto pointer_cookie = xcb_query_pointer(conn, screen->root);
+    auto pointer_reply = xcb_query_pointer_reply(conn, pointer_cookie, NULL);
+
+    if (pointer_reply) {
+      xcb_window_t root_window = pointer_reply->root;
+      int16_t root_x = pointer_reply->root_x;
+      int16_t root_y = pointer_reply->root_y;
+
+      auto translate_cookie = xcb_translate_coordinates(conn, root_window, root_window, root_x, root_y);
+      auto translate_reply = xcb_translate_coordinates_reply(conn, translate_cookie, NULL);
+
+      if (translate_reply && translate_reply->child != XCB_NONE) {
+        xcb_window_t window_under_cursor = translate_reply->child;
+        auto geometry_cookie = xcb_get_geometry(conn, window_under_cursor);
+        auto geometry_reply = xcb_get_geometry_reply(conn, geometry_cookie, NULL);
+
+        if (geometry_reply) {
+          printf("Window under cursor ID: %u\n", window_under_cursor);
+          printf("Dimensions: %hu x %hu\n", geometry_reply->width, geometry_reply->height);
+          printf("Position (relative to parent): (%d, %d)\n", geometry_reply->x, geometry_reply->y);
+
+          result = {geometry_reply->x, geometry_reply->y, geometry_reply->width, geometry_reply->height};
+          free(geometry_reply);
+        } else {
+          ERR("Failed to get geometry of window under cursor.\n");
+        }
+      }
+      
+      free(translate_reply);
+      free(pointer_reply);
+    } else {
+      ERR("No child window found at cursor position, or cursor is on root window.\n");
+    }
+
+    return result;
   }
 
   // DEBUG
@@ -102,11 +134,16 @@ struct _color { u_char r, g, b; };
   // RELASE
   // 75, 20, 28, 39, 27 - without pragma
   // 21, 46, 57, 35, 21 - with pragma
-  u_char* take_screenshot(std::pair<uint, uint> display_size) noexcept
-  {
+  // x, y, w, h
+  u_char* take_screenshot(std::tuple<int16_t, int16_t, int16_t, int16_t> rectangle) noexcept {
   #ifdef DEBUG
     auto start_time = std::chrono::high_resolution_clock::now();
   #endif
+
+    auto x = std::get<0>(rectangle);
+    auto y = std::get<1>(rectangle);
+    auto w = std::get<2>(rectangle);
+    auto h = std::get<3>(rectangle);
 
     auto conn = xcb_conn();
     auto screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
@@ -115,10 +152,10 @@ struct _color { u_char r, g, b; };
       conn,
       XCB_IMAGE_FORMAT_Z_PIXMAP,
       screen->root,
-      0,
-      0,
-      display_size.first,
-      display_size.second,
+      x,
+      y,
+      w,
+      h,
       ~0
     );
 
@@ -126,7 +163,7 @@ struct _color { u_char r, g, b; };
     auto* image_reply = xcb_get_image_reply(conn, get_image_task, 0);
     size_t l = xcb_get_image_data_length(image_reply);
 
-    _color* data = new _color[display_size.first * display_size.second];
+    _color* data = new _color[w*h];
 
     // BGRA 8 bit
     u_char* image_data = xcb_get_image_data(image_reply);

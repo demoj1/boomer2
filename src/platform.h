@@ -1,11 +1,11 @@
 #include <sys/types.h>
 #include <utility>
+#include <tuple>
 
-u_char*
-take_screenshot(std::pair<uint, uint> display_size) noexcept;
+std::tuple<int16_t, int16_t, int16_t, int16_t> get_window_dimensions_under_cursor() noexcept;
+u_char* take_screenshot(std::tuple<int16_t, int16_t, int16_t, int16_t> rectangle) noexcept;
 
-std::pair<uint, uint>
-get_screen_size() noexcept;
+std::pair<int16_t, int16_t> get_screen_size() noexcept;
 
 #ifdef XCB_SCREENSHOT
   #include <xcb/xcb.h>
