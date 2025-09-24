@@ -153,19 +153,22 @@ using namespace std;
 static Font font;
 
 enum Tools {
-  CROSSHAIR = 1,
-  LINE      = 2,
-  RECTANGLE = 4,
-  ARROW     = 8,
-  BLUR_RECTANGLE = 16,
+  CROSSHAIR = 1 << 0,
+  LINE      = 1 << 1,
+  RECTANGLE = 1 << 2,
+  ARROW     = 1 << 3,
+  BLUR_RECTANGLE = 1 << 4,
+  COLOR_PICKER = 1 << 5,
 };
-static int count_tools = 5;
+static int count_tools = 6;
 
 struct State {
   pair<uint, uint> screen_size;
   u_char* screenshot_data;
   Texture2D screenshot_texture;
   Camera2D camera = {};
+
+  optional<vec2> color_picker_at = nullopt;
 
   optional<vec2> first_point = nullopt;
   optional<vec2> second_point = nullopt;
@@ -323,7 +326,6 @@ struct State {
 
   State* draw_tool_pallete() {
     const auto radius = 20;
-    // const auto space = radius * count_tools;
 
     for (int i = 0; i < count_tools; i++) {
       const float x = GetMousePosition().x + cos(i) * radius*4;
@@ -342,6 +344,7 @@ struct State {
         case 2: DrawTextEx(font, "Re", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
         case 3: DrawTextEx(font, "Ar", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
         case 4: DrawTextEx(font, "Br", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
+        case 5: DrawTextEx(font, "Cp", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
       }
     }
 
@@ -469,6 +472,37 @@ struct State {
       }
 
       return this;
+  }
+
+  State* copy_color_into_clipboard() noexcept {
+    if (!check_tools(Tools::COLOR_PICKER)) return this;
+    auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+    auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    static char command_buffer[256];
+    sprintf(command_buffer, "echo -n \"#%02X%02X%02X\" | xclip -selection clipboard", color.r, color.g, color.b);
+    if (system(command_buffer) != 0) {
+      LOG("xclip failed");
+      assert(false);
+    };
+    return this;
+  }
+
+  State* draw_color_picker() noexcept {
+    if (!check_tools(Tools::COLOR_PICKER)) return this;
+    const int width = 195;
+    auto mouse_pos = GetMousePosition();
+    auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+    auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + 15.0, width, 55, color);
+    static char color_picker_text[256];
+    sprintf(color_picker_text, "#%02X%02X%02X", color.r, color.g, color.b);
+    DrawTextEx(font, color_picker_text, (vec2){(float)(mouse_pos.x - width/2.0) + 5, (float)(mouse_pos.y + 15.0) + 5}, 48.0, 1.0, (Color){
+      .r = static_cast<unsigned char>(255 - color.r),
+      .g = static_cast<unsigned char>(255 - color.g),
+      .b = static_cast<unsigned char>(255 - color.b),
+      .a = 255
+    });
+    return this;
   }
 
   State* update_last_rectangle_first_point(vec2 l) noexcept {
@@ -845,6 +879,20 @@ int main(int argc, char** argv) {
           state->update_last_crosshair(GetScreenToWorld2D(thisPos, state->camera));
         }
 
+        // Tools::COLOR_PICKER
+          if (IsKeyDown( KEY_X ) && !(state->check_tools(Tools::COLOR_PICKER))) {
+            state->activate_tools(Tools::COLOR_PICKER);
+          }
+
+          if (state->check_tools(Tools::COLOR_PICKER) && IsMouseButtonPressed(0)) {
+            state->copy_color_into_clipboard();
+            state->deactivate_tools(Tools::COLOR_PICKER);
+          }
+
+          if (IsKeyUp( KEY_X ) && state->check_tools(Tools::COLOR_PICKER)) {
+            state->deactivate_tools(Tools::COLOR_PICKER);
+          }
+
         // Tools::LINE
           if (IsKeyDown( KEY_S ) && !(state->check_tools(Tools::LINE))) {
             state->activate_tools(Tools::LINE);
@@ -934,6 +982,8 @@ int main(int argc, char** argv) {
           ->draw_lines()
           ->draw_arrows();
       EndMode2D();
+
+      state->draw_color_picker();
 
     #ifdef DEBUG
       state->draw_debug_line();

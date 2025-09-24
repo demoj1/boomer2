@@ -118,7 +118,7 @@ struct _color { u_char r, g, b; };
           ERR("Failed to get geometry of window under cursor.\n");
         }
       }
-      
+
       free(translate_reply);
       free(pointer_reply);
     } else {
