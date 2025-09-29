@@ -30,7 +30,6 @@ debug: export LSAN_OPTIONS=suppressions=address-sanitizer-suppress, print_suppre
 debug: cleanup exe
 	rm -rf objs/*
 	-$(OUT)
-	feh /tmp/__out_image.png
 
 bench: export CXXFLAGS=$(WARNINGS) $(CXXCOMMONFLAGS) -march=native -Ofast -DBENCH
 bench: cleanup exe

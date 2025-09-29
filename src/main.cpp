@@ -2,10 +2,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdio>
-#include <iostream>
-#include <mutex>
 #include <optional>
-#include <ostream>
 #include <raylib.h>
 #include <raymath.h>
 #include <rlgl.h>
@@ -15,152 +12,79 @@
 
 #include "font.h"
 #include "platform.h"
-
-//+Macros
-
-  #ifdef DEBUG
-    static int __COUNTER = -1;
-
-    #define LOG(__format_string, ...) do { \
-      printf("%s:%d (%s)@%d : " __format_string, __FILE__, __LINE__, __FUNCTION__, ++__COUNTER, ##__VA_ARGS__); \
-      fflush(stdout); \
-    } while (0)
-  #else
-    #define LOG(__format_string, ...) {}
-  #endif
-
-  #ifdef BENCH
-    #define __BENCH 1
-  #else
-    #define __BENCH 0
-  #endif
-
-  #define FF "(%06.1f; %06.1f)"
-  #define F(v) v.x, v.y
-
-  #define BINARY_F "%c%c%c%c%c%c%c%c"
-  #define BYTE_TO_BIN(byte)  \
-    ((byte) & 0x80 ? '1' : '0'), \
-    ((byte) & 0x40 ? '1' : '0'), \
-    ((byte) & 0x20 ? '1' : '0'), \
-    ((byte) & 0x10 ? '1' : '0'), \
-    ((byte) & 0x08 ? '1' : '0'), \
-    ((byte) & 0x04 ? '1' : '0'), \
-    ((byte) & 0x02 ? '1' : '0'), \
-    ((byte) & 0x01 ? '1' : '0')
-//-Macros
+#include "util.h"
 
 using namespace std;
 
-//+Extends default
-  using vec2 = Vector2;
+inline vec2& round(vec2& l) noexcept {
+  l.x = round(l.x);
+  l.y = round(l.y);
+  return l;
+}
 
-  // inline bool operator==(const vec2& l, const vec2& r)
-  // noexcept { return l.x == r.x && l.y == r.y; }
+Rectangle rect_from_vectors(vec2 first_point, vec2 second_point) noexcept {
+  vec2 min_point = {
+    fmin(first_point.x, second_point.x),
+    fmin(first_point.y, second_point.y),
+  };
 
-  // inline vec2 operator-(const vec2& l, const vec2& r)
-  // noexcept { return Vector2Subtract(l, r); }
+  vec2 max_point = {
+    fmax(first_point.x, second_point.x),
+    fmax(first_point.y, second_point.y),
+  };
 
-  // inline vec2 operator-(const vec2& l, const float& r)
-  // noexcept { return Vector2SubtractValue(l, r); }
+  auto sizes = max_point - min_point;
 
-  // inline vec2 operator+(const vec2& l, const vec2& r)
-  // noexcept { return Vector2Add(l, r); }
+  return Rectangle {
+      min_point.x,
+      min_point.y,
+      sizes.x,
+      sizes.y
+  };
+}
 
-  inline vec2 operator+(const vec2& l, const float& r)
-  noexcept { return Vector2AddValue(l, r); }
+void DrawCrosshair(
+  pair<vec2, vec2>&& l1,
+  pair<vec2, vec2>&& l2,
+  float thick = 3,
+  Color color = MAGENTA
+) noexcept {
+  DrawLineEx( l1.first, l1.second, thick, color );
+  DrawLineEx( l2.first, l2.second, thick, color );
+}
 
-  inline vec2& round(vec2& l) noexcept {
-    l.x = round(l.x);
-    l.y = round(l.y);
-    return l;
-  }
+void DrawArrow(
+  pair<vec2, vec2>&& line,
+  float thick = 5,
+  Color color = MAGENTA
+) noexcept {
+  DrawLineEx(
+    line.first,
+    line.second,
+    thick,
+    color
+  );
 
-  inline vec2 Vector2AddXValue(vec2 v, float val)
-  noexcept { return { v.x + val, v.y }; }
+  vec2 v = Vector2Normalize(line.second - line.first);
+  auto a_ = Vector2Rotate(v,  -PI/0.30);
+  auto b_ = Vector2Rotate(v,   PI/0.30);
 
-  inline vec2 Vector2AddYValue(vec2 v, float val)
-  noexcept { return { v.x, v.y + val }; }
+  a_ = (Vector2Normalize(a_ - v) * 40.0f) + line.second;
+  b_ = (Vector2Normalize(b_ - v) * 40.0f) + line.second;
 
-  inline vec2 Vector2MultiplyValue(vec2 v, float val)
-  noexcept { return { v.x * val, v.y * val }; }
-
-  Rectangle rect_from_vectors(vec2 first_point, vec2 second_point) noexcept {
-    vec2 min_point = {
-      fmin(first_point.x, second_point.x),
-      fmin(first_point.y, second_point.y),
-    };
-
-    vec2 max_point = {
-      fmax(first_point.x, second_point.x),
-      fmax(first_point.y, second_point.y),
-    };
-
-    auto sizes = max_point - min_point;
-
-    return Rectangle {
-        min_point.x,
-        min_point.y,
-        sizes.x,
-        sizes.y
-    };
-  }
-
-  void DrawCrosshair(
-    pair<vec2, vec2>&& l1,
-    pair<vec2, vec2>&& l2,
-    float thick = 3,
-    Color color = MAGENTA
-  ) noexcept {
-    DrawLineEx( l1.first, l1.second, thick, color );
-    DrawLineEx( l2.first, l2.second, thick, color );
-  }
-
-  void DrawArrow(
-    pair<vec2, vec2>&& line,
-    float thick = 5,
-    Color color = MAGENTA
-  ) noexcept {
-    DrawLineEx(
-      line.first,
-      line.second,
-      thick,
-      color
-    );
-
-    vec2 v = Vector2Normalize(line.second - line.first);
-    auto a_ = Vector2Rotate(v,  -PI/0.30);
-    auto b_ = Vector2Rotate(v,   PI/0.30);
-
-    a_ = Vector2MultiplyValue(Vector2Normalize(a_ - v), 40.0f) + line.second;
-    b_ = Vector2MultiplyValue(Vector2Normalize(b_ - v), 40.0f) + line.second;
-
-    DrawLineEx(
-      { a_.x, a_.y },
-      { line.second.x, line.second.y },
-      thick,
-      color
-    );
-    DrawLineEx(
-      { b_.x, b_.y },
-      { line.second.x, line.second.y },
-      thick,
-      color
-    );
-  }
-//-Extends default
-
-static Font font;
-
-enum Tools {
-  CROSSHAIR = 1 << 0,
-  LINE      = 1 << 1,
-  RECTANGLE = 1 << 2,
-  ARROW     = 1 << 3,
-  BLUR_RECTANGLE = 1 << 4,
-  COLOR_PICKER = 1 << 5,
-};
-static int count_tools = 6;
+  DrawLineEx(
+    { a_.x, a_.y },
+    { line.second.x, line.second.y },
+    thick,
+    color
+  );
+  DrawLineEx(
+    { b_.x, b_.y },
+    { line.second.x, line.second.y },
+    thick,
+    color
+  );
+}
 
 struct State {
   pair<uint, uint> screen_size;
@@ -194,9 +118,6 @@ struct State {
 
   inline State* reset_tools()
   noexcept { this->tools = 0; return this; }
-
-  inline bool toggle_tools(Tools tool)
-  noexcept { this->tools ^= tool; return this->tools & tool; }
 
   inline bool check_tools(Tools tool)
   noexcept { return this->tools & tool; }
@@ -275,8 +196,7 @@ struct State {
       { max_point->x - min_point->x    , (float)sheight() - max_point->y },
     };
 
-    for (int i = 0; i < 8; i += 2)
-      DrawRectangle( points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, color );
+    for (int i = 0; i < 8; i += 2) DrawRectangle( points[i].x, points[i].y, points[i + 1].x, points[i + 1].y, color );
 
     return this;
   }
@@ -317,8 +237,7 @@ struct State {
         { second_point->x                 , (float)screenshot_texture.height },
       };
 
-      for (int i = 0; i < 8; i += 2)
-        DrawLineEx( points[i], points[i + 1], 1 / camera.zoom, BLUE );
+      for (int i = 0; i < 8; i += 2) DrawLineEx( points[i], points[i + 1], 1 / camera.zoom, BLUE );
     }
 
     return this;
@@ -416,6 +335,7 @@ struct State {
 
   State* draw_lines() noexcept {
       size_t i = 0;
+
       for (auto& [fp, sp] : lines) {
         if (i++ == lines.size() - 1 && !check_tools(Tools::LINE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -433,6 +353,7 @@ struct State {
 
   State* draw_arrows() noexcept {
       size_t i = 0;
+
       for (auto& [fp, sp] : arrows) {
         if (i++ == arrows.size() - 1 && !check_tools(Tools::ARROW)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -445,6 +366,7 @@ struct State {
 
   State* draw_rectangles() noexcept {
       size_t i = 0;
+
       for (auto& [fp, sp] : rectangles) {
         if (i++ == rectangles.size() - 1 && !check_tools(Tools::RECTANGLE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -457,6 +379,7 @@ struct State {
 
   State* draw_blur_rectangles() noexcept {
       size_t i = 0;
+
       for (auto& [fp, sp] : blur_rectangles) {
         if (i++ == blur_rectangles.size() - 1 && !check_tools(Tools::BLUR_RECTANGLE)) break;
         if (!fp.has_value() || !sp.has_value()) break;
@@ -476,32 +399,55 @@ struct State {
 
   State* copy_color_into_clipboard() noexcept {
     if (!check_tools(Tools::COLOR_PICKER)) return this;
+
     auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
     auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+
     static char command_buffer[256];
     sprintf(command_buffer, "echo -n \"#%02X%02X%02X\" | xclip -selection clipboard", color.r, color.g, color.b);
+
     if (system(command_buffer) != 0) {
       LOG("xclip failed");
       assert(false);
     };
+
     return this;
   }
 
   State* draw_color_picker() noexcept {
     if (!check_tools(Tools::COLOR_PICKER)) return this;
-    const int width = 195;
-    auto mouse_pos = GetMousePosition();
-    auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-    auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
-    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + 15.0, width, 55, color);
+    const int width = 300;
+    const int height = width*0.29;
+    const int font_height = width*0.26;
+
+    const auto mouse_pos = GetMousePosition();
+    const auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+    const auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    const auto hsv = ColorToHSV(color);
+    const auto invert_color = hsv.z < 0.5 ? WHITE : (hsv.y < 0.5 ? BLACK : WHITE);
+    const float h = clampf(hsv.x, 0, 360, 0, width+1);
+    const float s = clampf(hsv.y, 0, 1, 0, width+1);
+    const float v = clampf(hsv.z, 0, 1, 0, width+1);
+
+    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + 15.0, width, height + 60, color);
+    DrawRectangleLines(mouse_pos.x - width/2.0 - 1, mouse_pos.y + 15.0 - 1, width + 2, height + 64, invert_color);
+
     static char color_picker_text[256];
     sprintf(color_picker_text, "#%02X%02X%02X", color.r, color.g, color.b);
-    DrawTextEx(font, color_picker_text, (vec2){(float)(mouse_pos.x - width/2.0) + 5, (float)(mouse_pos.y + 15.0) + 5}, 48.0, 1.0, (Color){
-      .r = static_cast<unsigned char>(255 - color.r),
-      .g = static_cast<unsigned char>(255 - color.g),
-      .b = static_cast<unsigned char>(255 - color.b),
-      .a = 255
-    });
+
+    DrawTextEx(font, color_picker_text, (vec2){(float)(mouse_pos.x - width/2.0) + 5, (float)(mouse_pos.y + 15.0) + 5}, font_height, 1.0, invert_color);
+
+    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + height + 15, width, 63, BLACK);
+
+    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + height + 15 + 0, h, 20, BLUE);
+    DrawTextEx(font, TextFormat("H: %d", (int)hsv.x), (vec2){(float)(mouse_pos.x - width/2.0) + 5, mouse_pos.y + height + 15 + 1}, 19, 1.0, WHITE);
+
+    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + height + 16 + 20, s, 20, BLUE);
+    DrawTextEx(font, TextFormat("S: %0.2f", hsv.y), (vec2){(float)(mouse_pos.x - width/2.0) + 5, mouse_pos.y + height + 16 + 21}, 19, 1.0, WHITE);
+
+    DrawRectangle(mouse_pos.x - width/2.0, mouse_pos.y + height + 17 + 40, v, 20, BLUE);
+    DrawTextEx(font, TextFormat("V: %0.2f", hsv.z), (vec2){(float)(mouse_pos.x - width/2.0) + 5, mouse_pos.y + height + 17 + 41}, 19, 1.0, WHITE);
+
     return this;
   }
 
@@ -848,7 +794,7 @@ int main(int argc, char** argv) {
     BeginDrawing();
       ClearBackground((Color){0, 42, 90, 255});
 
-        if (IsKeyDown(KEY_X) && state->min_point.has_value() && state->max_point.has_value()) {
+        if (IsKeyDown(KEY_Z) && state->min_point.has_value() && state->max_point.has_value()) {
           auto& camera = state->camera;
 
           auto max_point = state->max_point.value();
