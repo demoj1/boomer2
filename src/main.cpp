@@ -215,12 +215,13 @@ struct State {
       (int)((round(*max_point).x - round(*min_point).x) * (round(*max_point).y - round(*min_point).y))
     );
 
+    const auto rectangle = rect_from_vectors(round(*first_point), round(*second_point));
     auto point = round(*min_point);
     point.y -= (28.0 + 1.0)/camera.zoom;
 
     DrawTextEx(font, text, point, 28.0 / camera.zoom, 1.0/camera.zoom, GREEN);
     DrawRectangleLinesEx(
-      rect_from_vectors(round(*first_point), round(*second_point)),
+      rectangle,
       2 / camera.zoom,
       BLUE
     );
@@ -238,6 +239,35 @@ struct State {
       };
 
       for (int i = 0; i < 8; i += 2) DrawLineEx( points[i], points[i + 1], 1 / camera.zoom, BLUE );
+    } else {
+      const auto image = LoadImageFromTexture(screenshot_texture);
+
+      int N = 0;
+      float avg_r = 0;
+      float avg_g = 0;
+      float avg_b = 0;
+
+      for (int x = min_point->x; x < max_point->x; x++) {
+        for (int y = min_point->y; y < max_point->y; y++) {
+          const auto color = GetImageColor(image, x, y);
+
+          avg_r += color.r;
+          avg_g += color.g;
+          avg_b += color.b;
+
+          N++;
+        }
+      }
+
+      draw_color_picker({
+          rectangle.x + rectangle.width - (rectangle.width/2),
+          rectangle.y + rectangle.height - 10
+        }, (Color){
+          .r=(uint8_t)(avg_r/N),
+          .g=(uint8_t)(avg_g/N),
+          .b=(uint8_t)(avg_b/N),
+          .a=255
+        });
     }
 
     return this;
@@ -414,15 +444,12 @@ struct State {
     return this;
   }
 
-  State* draw_color_picker() noexcept {
-    if (!check_tools(Tools::COLOR_PICKER)) return this;
+  State* draw_color_picker(const vec2 xy, const Color color) {
     const int width = 300;
     const int height = width*0.29;
     const int font_height = width*0.26;
 
-    const auto mouse_pos = GetMousePosition();
-    const auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-    const auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    const auto mouse_pos = xy;
     const auto hsv = ColorToHSV(color);
     const auto invert_color = hsv.z < 0.5 ? WHITE : (hsv.y < 0.5 ? BLACK : WHITE);
     const float h = clampf(hsv.x, 0, 360, 0, width+1);
@@ -449,6 +476,15 @@ struct State {
     DrawTextEx(font, TextFormat("V: %0.2f", hsv.z), (vec2){(float)(mouse_pos.x - width/2.0) + 5, mouse_pos.y + height + 17 + 41}, 19, 1.0, WHITE);
 
     return this;
+  }
+
+  State* draw_color_picker() noexcept {
+    if (!check_tools(Tools::COLOR_PICKER)) return this;
+
+    const auto mouse_pos = GetMousePosition();
+    const auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
+    const auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    return draw_color_picker(mouse_pos, color);
   }
 
   State* update_last_rectangle_first_point(vec2 l) noexcept {
