@@ -90,6 +90,7 @@ struct State {
   pair<uint, uint> screen_size;
   u_char* screenshot_data;
   Texture2D screenshot_texture;
+  Image screenshot_image;
   Camera2D camera = {};
 
   optional<vec2> color_picker_at = nullopt;
@@ -240,8 +241,6 @@ struct State {
 
       for (int i = 0; i < 8; i += 2) DrawLineEx( points[i], points[i + 1], 1 / camera.zoom, BLUE );
     } else {
-      const auto image = LoadImageFromTexture(screenshot_texture);
-
       int N = 0;
       float avg_r = 0;
       float avg_g = 0;
@@ -249,7 +248,7 @@ struct State {
 
       for (int x = min_point->x; x < max_point->x; x++) {
         for (int y = min_point->y; y < max_point->y; y++) {
-          const auto color = GetImageColor(image, x, y);
+          const auto color = GetImageColor(screenshot_image, x, y);
 
           avg_r += color.r;
           avg_g += color.g;
@@ -759,13 +758,14 @@ int main(int argc, char** argv) {
 
   load_screenshot_thread.join();
 
-  state->screenshot_texture = LoadTextureFromImage((Image){
-      .data = state->screenshot_data,
-      .width = (int)state->swidth(),
-      .height = (int)state->sheight(),
-      .mipmaps = 1,
-      .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
-  });
+  state->screenshot_image = (Image){
+    .data = state->screenshot_data,
+    .width = (int)state->swidth(),
+    .height = (int)state->sheight(),
+    .mipmaps = 1,
+    .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
+  };
+  state->screenshot_texture = LoadTextureFromImage(state->screenshot_image);
 
   state->camera.zoom = 1.0;
 
