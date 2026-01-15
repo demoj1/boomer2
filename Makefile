@@ -3,7 +3,7 @@ OUT_NAME=boomer2
 CXX=clang++
 STD=-std=c++2b
 WARNINGS=-Wall -Wextra -Wpedantic -Wno-unused-command-line-argument -Wno-missing-field-initializers -Wno-gnu-zero-variadic-macro-arguments -Wno-c99-extensions
-# SANITIZERS=-fdebug-macro -fsanitize=address -fstack-protector -fstack-protector-strong -fstack-protector-all -Rpass=inline -Rpass=unroll -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
+SANITIZERS=-fdebug-macro -fsanitize=address -fstack-protector -fstack-protector-strong -fstack-protector-all -Rpass=inline -Rpass=unroll -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -Rpass-analysis=loop-vectorize
 LIBS=-lX11 -lraylib -lxcb
 CXXCOMMONFLAGS=-DXCB_SCREENSHOT -flto -g
 CXXFLAGS=$(WARNINGS) $(CXXCOMMONFLAGS) -march=native -Ofast

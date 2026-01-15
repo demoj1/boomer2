@@ -724,6 +724,7 @@ struct State {
 };
 
 static State* state = new State{};
+std::thread export_thread;
 
 int main(int argc, char** argv) {
   std::thread load_screenshot_thread;
@@ -733,16 +734,16 @@ int main(int argc, char** argv) {
     state->screen_size = {w, h};
     load_screenshot_thread = std::thread([=]() {
       state->screenshot_data = take_screenshot({x, y, w, h});
+      LOG("Load screenshot data\n");
     });
   } else {
     state->screen_size = get_screen_size();
     load_screenshot_thread = std::thread([]() {
       auto [w, h] = state->screen_size;
       state->screenshot_data = take_screenshot({0, 0, w, h});
+      LOG("Load screenshot data\n");
     });
   }
-
-  std::thread export_thread;
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_UNDECORATED);
   SetTargetFPS(70);
@@ -750,6 +751,8 @@ int main(int argc, char** argv) {
 #ifndef DEBUG
   SetTraceLogLevel(LOG_ERROR);
 #endif
+
+  LOG("State initialize, swidth: %d, sheight: %d\n", state->swidth(), state->sheight());
 
   InitWindow(state->swidth(), state->sheight(), "boomer2");
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
@@ -774,7 +777,7 @@ int main(int argc, char** argv) {
   SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
   while (!WindowShouldClose()) {
     auto thisPos = GetMousePosition();
-    auto wheel   = GetMouseWheelMove();
+    auto wheel = GetMouseWheelMove();
 
     if (wheel != 0) {
       vec2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), state->camera);
@@ -782,10 +785,16 @@ int main(int argc, char** argv) {
       state->camera.offset = GetMousePosition();
       state->camera.target = mouseWorldPos;
 
-      state->camera.zoom += wheel/3.0;
+      const auto multplier = 50.0;
 
-      if (state->camera.zoom <= 0.3f) state->camera.zoom = 0.3f;
-      if (state->camera.zoom >= 100) state->camera.zoom = 100.0f;
+      if (IsKeyDown(KEY_LEFT_SHIFT)) {
+        state->camera.zoom += (std::logf(state->camera.zoom+1.0)*(wheel < 0 ? -1 : 1))/multplier;
+      } else {
+        state->camera.zoom += std::logf(state->camera.zoom+1.0)*(wheel < 0 ? -1 : 1);
+      }
+
+      if (state->camera.zoom <= 0.8f) state->camera.zoom = 0.8f;
+      if (state->camera.zoom >= 20) state->camera.zoom = 20.0f;
     }
 
     vec2 delta = prevMousePos - thisPos;
@@ -979,4 +988,5 @@ close:
   delete[] state->screenshot_data;
   CloseWindow();
   if (export_thread.joinable()) export_thread.join();
+  if (load_screenshot_thread.joinable()) load_screenshot_thread.join();
 }

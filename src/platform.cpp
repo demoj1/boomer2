@@ -145,6 +145,10 @@ struct _color { u_char r, g, b; };
     auto w = std::get<2>(rectangle);
     auto h = std::get<3>(rectangle);
 
+  #ifdef DEBUG
+    std::cout << "Screen rect [" << x << ", " << y << ", " << w << ", " << h << "];" << std::endl;
+  #endif
+
     auto conn = xcb_conn();
     auto screen = xcb_setup_roots_iterator(xcb_get_setup(conn)).data;
 
