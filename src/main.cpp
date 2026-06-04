@@ -421,6 +421,12 @@ struct State {
         auto image = GenImageWhiteNoise(width, height, 0.05);
         auto texture = LoadTextureFromImage(image);
         DrawTexture(texture, min_x, min_y, MAGENTA);
+        // raylib batches draws: flush the queued quad to the GPU before freeing
+        // the texture it references, otherwise the deferred draw samples a freed
+        // (and possibly recycled) texture slot.
+        rlDrawRenderBatchActive();
+        UnloadTexture(texture);
+        UnloadImage(image);
       }
 
       return this;
@@ -430,7 +436,7 @@ struct State {
     if (!check_tools(Tools::COLOR_PICKER)) return this;
 
     auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-    auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    auto color = GetImageColor(screenshot_image, texture_pos.x, texture_pos.y);
 
     static char command_buffer[256];
     sprintf(command_buffer, "echo -n \"#%02X%02X%02X\" | " CLIPBOARD_TEXT_PIPE, color.r, color.g, color.b);
@@ -482,7 +488,7 @@ struct State {
 
     const auto mouse_pos = GetMousePosition();
     const auto texture_pos = GetScreenToWorld2D(GetMousePosition(), camera);
-    const auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
+    const auto color = GetImageColor(screenshot_image, texture_pos.x, texture_pos.y);
     return draw_color_picker(mouse_pos, color);
   }
 
@@ -704,6 +710,9 @@ struct State {
           auto image = GenImageWhiteNoise(rect.width, rect.height, 0.1);
           auto texture = LoadTextureFromImage(image);
           DrawTexture(texture, rect.x, rect.y, MAGENTA);
+          rlDrawRenderBatchActive();
+          UnloadTexture(texture);
+          UnloadImage(image);
         }
 
         i = 0;
@@ -719,7 +728,9 @@ struct State {
       EndTextureMode();
     EndDrawing();
 
-    return LoadImageFromTexture(render_screenshot_texture.texture);;
+    auto exported = LoadImageFromTexture(render_screenshot_texture.texture);
+    UnloadRenderTexture(render_screenshot_texture);
+    return exported;
   }
 };
 

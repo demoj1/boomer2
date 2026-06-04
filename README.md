@@ -6,7 +6,9 @@ via `grim` and copies to the clipboard via `wl-copy`, so it also needs `grim` an
 
 Left mouse for drag&drop  
 Mouse wheel for zoom in/out  
+Shift + mouse wheel for fine zoom  
 Right mouse for select screenshot area  
+Esc for reset active tools  
 Enter or C to save area into clipboard  
 
 Tools:  
