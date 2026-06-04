@@ -36,6 +36,12 @@ bench: cleanup exe
 	mkdir -p bench
 	hyperfine --warmup 1 --export-orgmode bench/`date --iso-8601=seconds | sed 's/:/_/g'`.org $(OUT)
 
+# Wayland build: capture the screen via `grim` instead of XCB, copy via wl-copy.
+# Requires grim and wl-clipboard at runtime.
+wayland: export CXXFLAGS=$(WARNINGS) -DWAYLAND_SCREENSHOT -flto -g -march=native -Ofast
+wayland: export OUT_POSTFIX=wayland
+wayland: cleanup exe
+
 cleanup:
 	rm -rf ./$(OBJ_PREFIX)/*
 

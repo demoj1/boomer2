@@ -9,10 +9,11 @@
 #ifdef XCB_SCREENSHOT
   #include <xcb/xcb.h>
   #include <xcb/xproto.h>
-#else
-  #include <X11/X.h>
-  #include <X11/Xlib.h>
-  #include <X11/Xutil.h>
+#endif
+
+#ifdef WAYLAND_SCREENSHOT
+  #include <raylib.h>
+  #include <cstring>
 #endif
 
 #pragma pack(1)
@@ -191,88 +192,55 @@ struct _color { u_char r, g, b; };
 
     return (u_char*)data;
   }
-#else
-  void raise_window(void* handle) {
-    auto display = XOpenDisplay(NULL);
-    Window* wid = (Window*)handle;
-    XSetWindowAttributes attrs;
-    attrs.override_redirect = true;
+#endif
 
-    XChangeWindowAttributes(
-      display,
-      *wid,
-      CWOverrideRedirect,
-      &attrs
-    );
+#ifdef WAYLAND_SCREENSHOT
+  static const char* GRIM_TMP_PATH = "/tmp/__boomer_grab.png";
 
-    XCloseDisplay(display);
-  }
+  // Wayland has no portable way to read the framebuffer or per-window geometry,
+  // so we shell out to `grim` once, capture the whole screen into a temp PNG and
+  // decode it with raylib. The selection of an area happens later inside our own
+  // window. The capture is cached because get_screen_size() and take_screenshot()
+  // both need it; the first call happens on the main thread (see main.cpp) before
+  // the screenshot worker thread starts, so there is no data race on the static.
+  static const Image& grab_screen() noexcept {
+    static Image image = {};
+    if (image.data != nullptr) return image;
 
-  std::pair<uint, uint> get_screen_size() noexcept
-  {
-    auto display = XOpenDisplay(NULL);
-    auto screen = DefaultScreen(display);
-
-    std::pair<uint, uint> pair = {
-      (uint)DisplayWidth(display, screen),
-      (uint)DisplayHeight(display, screen)
-    };
-
-    XCloseDisplay(display);
-
-    return pair;
-  }
-
-  // DEBUG
-  // 104, 136, 109, 129, 108 - without pragma
-  // 74, 74, 121, 91, 95     - with pragma
-  // RELASE
-  // 76, 55, 83, 61, 57 - without pragma
-  // 63, 64, 70, 66, 46 - with pragma
-  u_char* take_screenshot(std::pair<uint, uint> display_size) noexcept
-  {
-  #ifdef DEBUG
-    auto start_time = std::chrono::high_resolution_clock::now();
-  #endif
-
-    auto display = XOpenDisplay(NULL);
-    uint screen = DefaultScreen(display);
-
-    XImage* image = XGetImage(
-      display,
-      RootWindow(display, screen),
-      0,
-      0,
-      display_size.first,
-      display_size.second,
-      AllPlanes,
-      ZPixmap
-    );
-
-    _color* data = new _color[display_size.first * display_size.second];
-
-    for (uint y = 0; y < display_size.second; y++) {
-      for (uint x = 0; x < display_size.first; x++) {
-        unsigned long pixel = XGetPixel(image, x, y);
-        auto ii = y*display_size.first + x;
-
-        data[ ii ].r = (pixel & image->red_mask)   >> 16;
-        data[ ii ].g = (pixel & image->green_mask) >> 8;
-        data[ ii ].b = (pixel & image->blue_mask)  >> 0;
-      }
+    if (system("grim " "/tmp/__boomer_grab.png") != 0) {
+      ERR("grim failed (is it installed and are you running under Wayland?)");
+      asm("int $3");
     }
 
-    XCloseDisplay(display);
-    XDestroyImage(image);
+    image = LoadImage(GRIM_TMP_PATH);
+    // Match the X11 path: main.cpp expects a tightly packed RGB8 buffer.
+    ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+    return image;
+  }
 
-  #ifdef DEBUG
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto time = end_time - start_time;
+  std::pair<int16_t, int16_t> get_screen_size() noexcept {
+    const auto& image = grab_screen();
+    return { (int16_t)image.width, (int16_t)image.height };
+  }
 
-    std::cout << "--------> took: " << time/std::chrono::milliseconds(1) << "ms.\n";
-    fflush(stdout);
-  #endif
+  std::tuple<int16_t, int16_t, int16_t, int16_t> get_window_dimensions_under_cursor() noexcept {
+    // No per-window geometry under Wayland: fall back to the full screen.
+    const auto& image = grab_screen();
+    return { 0, 0, (int16_t)image.width, (int16_t)image.height };
+  }
 
-    return (u_char*)data;
+  u_char* take_screenshot(std::tuple<int16_t, int16_t, int16_t, int16_t> rectangle) noexcept {
+    const auto& image = grab_screen();
+
+    const auto w = std::get<2>(rectangle);
+    const auto h = std::get<3>(rectangle);
+
+    // main.cpp owns the returned buffer and frees it with delete[], so we cannot
+    // hand back raylib's malloc'd image.data directly; copy it into a new[] buffer.
+    const size_t length = (size_t)w * (size_t)h * sizeof(_color);
+    u_char* data = new u_char[length];
+    memcpy(data, image.data, length);
+
+    return data;
   }
 #endif

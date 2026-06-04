@@ -1,5 +1,9 @@
 Zoom/Screenshot tool for linux, dependencies: libX11, raylib, xclip
 
+Wayland (X11 doesn't work there): build with `make wayland`. Captures the screen
+via `grim` and copies to the clipboard via `wl-copy`, so it also needs `grim` and
+`wl-clipboard` installed. Area selection still happens inside the app window.
+
 Left mouse for drag&drop  
 Mouse wheel for zoom in/out  
 Right mouse for select screenshot area  

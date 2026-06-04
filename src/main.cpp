@@ -280,10 +280,10 @@ struct State {
       const float y = GetMousePosition().y + sin(i) * radius*4;
 
       DrawCircleLines(x, y, radius, BLACK);
-      DrawCircleGradient(x, y, radius, {230, 230, 230, 100}, {255, 255, 255, 100});
+      DrawCircleGradient({x, y}, radius, {230, 230, 230, 100}, {255, 255, 255, 100});
 
       if (tools & (1 << i)) {
-        DrawCircleGradient(x, y, radius, GREEN, {230, 230, 230, 255});
+        DrawCircleGradient({x, y}, radius, GREEN, {230, 230, 230, 255});
       }
 
       switch (i) {
@@ -433,10 +433,10 @@ struct State {
     auto color = GetImageColor(LoadImageFromTexture(screenshot_texture), texture_pos.x, texture_pos.y);
 
     static char command_buffer[256];
-    sprintf(command_buffer, "echo -n \"#%02X%02X%02X\" | xclip -selection clipboard", color.r, color.g, color.b);
+    sprintf(command_buffer, "echo -n \"#%02X%02X%02X\" | " CLIPBOARD_TEXT_PIPE, color.r, color.g, color.b);
 
     if (system(command_buffer) != 0) {
-      LOG("xclip failed");
+      LOG("clipboard copy failed");
       assert(false);
     };
 
@@ -823,8 +823,8 @@ int main(int argc, char** argv) {
 
       export_thread = std::thread([image]() {
         if (ExportImage(image, "/tmp/__out_image.png")) {
-          if (system("xclip -selection clipboard -t image/png -i /tmp/__out_image.png") != 0) {
-            LOG("xclip failed");
+          if (system(CLIPBOARD_IMAGE_CMD) != 0) {
+            LOG("clipboard copy failed");
             assert(false);
           }
 
