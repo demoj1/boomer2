@@ -3,9 +3,9 @@
 #include <cstddef>
 #include <cstdio>
 #include <optional>
+#include <string>
 #include <raylib.h>
 #include <raymath.h>
-#include <rlgl.h>
 #include <sys/types.h>
 #include <thread>
 #include <vector>
@@ -15,6 +15,78 @@
 #include "util.h"
 
 using namespace std;
+
+// A fully blurred copy of the screenshot, prepared once at startup; the blur
+// rectangles just draw regions of it. Built on the GPU with a separable
+// Gaussian (see build_blurred_screenshot), so there is zero per-frame cost and
+// none of the ghosting a sparse single-pass kernel produces.
+static Texture2D blurred_texture;
+
+// One 1D Gaussian pass, sigma 6, radius 12. Ran alternately in the horizontal
+// and vertical direction over several iterations.
+static const char* BLUR_SHADER_FS = R"(
+#version 330
+in vec2 fragTexCoord;
+uniform sampler2D texture0;
+uniform vec2 texelSize;
+uniform vec2 direction;
+out vec4 finalColor;
+
+void main() {
+  vec3 acc = vec3(0.0);
+  float total = 0.0;
+
+  for (int i = -12; i <= 12; i++) {
+    float w = exp(-float(i*i) / 72.0);
+    acc += texture(texture0, fragTexCoord + direction * texelSize * float(i)).rgb * w;
+    total += w;
+  }
+
+  finalColor = vec4(acc / total, 1.0);
+}
+)";
+
+// Ping-pong the screenshot between two render textures, blurring one axis per
+// pass. The pass count must stay even: every render-texture stage flips the
+// content vertically, an even number of flips cancels out and the result stays
+// a drop-in replacement for screenshot_texture.
+static void build_blurred_screenshot(Texture2D screenshot) noexcept {
+  constexpr int PASSES = 12; // 6 iterations of H+V, effective sigma ~15
+
+  Shader shader = LoadShaderFromMemory(nullptr, BLUR_SHADER_FS);
+  const int direction_loc = GetShaderLocation(shader, "direction");
+
+  const float texel_size[2] = { 1.0f / screenshot.width, 1.0f / screenshot.height };
+  SetShaderValue(shader, GetShaderLocation(shader, "texelSize"), texel_size, SHADER_UNIFORM_VEC2);
+
+  // Deliberately leaked: one of them holds blurred_texture for the app's
+  // lifetime, and the process is short-lived anyway.
+  auto ping = LoadRenderTexture(screenshot.width, screenshot.height);
+  auto pong = LoadRenderTexture(screenshot.width, screenshot.height);
+
+  Texture2D src = screenshot;
+  auto* dst = &ping;
+
+  for (int i = 0; i < PASSES; i++) {
+    const float direction[2] = { i % 2 == 0 ? 1.0f : 0.0f, i % 2 == 0 ? 0.0f : 1.0f };
+    SetShaderValue(shader, direction_loc, direction, SHADER_UNIFORM_VEC2);
+
+    BeginTextureMode(*dst);
+      BeginShaderMode(shader);
+        DrawTexture(src, 0, 0, WHITE);
+      EndShaderMode();
+    EndTextureMode();
+
+    src = dst->texture;
+    dst = dst == &ping ? &pong : &ping;
+  }
+
+  blurred_texture = src;
+  // Smooth when zoomed in, unlike the point-sampled sharp screenshot.
+  SetTextureFilter(blurred_texture, TEXTURE_FILTER_BILINEAR);
+
+  UnloadShader(shader);
+}
 
 inline vec2& round(vec2& l) noexcept {
   l.x = round(l.x);
@@ -110,6 +182,9 @@ struct State {
   vector<pair<optional<vec2>, optional<vec2>>> arrows = {};
   vector<pair<optional<vec2>, optional<vec2>>> rectangles = {};
   vector<pair<optional<vec2>, optional<vec2>>> blur_rectangles = {};
+  // Numbered circle markers ("look here: 1, 2, 3"). While NUMBER_MARKER is
+  // active the last element follows the cursor, LMB freezes it in place.
+  vector<pair<string, vec2>> markers = {};
 
   inline State* activate_tools(Tools tool)
   noexcept { this->tools |= tool; return this; }
@@ -293,6 +368,7 @@ struct State {
         case 3: DrawTextEx(font, "Ar", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
         case 4: DrawTextEx(font, "Br", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
         case 5: DrawTextEx(font, "Cp", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
+        case 6: DrawTextEx(font, "Nm", { static_cast<float>(x - radius/2.0f), y - radius/2.0f }, radius, 1, BLACK); break;
       }
     }
 
@@ -418,15 +494,8 @@ struct State {
         auto min_x = min(round(fp->x), round(sp->x));
         auto min_y = min(round(fp->y), round(sp->y));
 
-        auto image = GenImageWhiteNoise(width, height, 0.05);
-        auto texture = LoadTextureFromImage(image);
-        DrawTexture(texture, min_x, min_y, MAGENTA);
-        // raylib batches draws: flush the queued quad to the GPU before freeing
-        // the texture it references, otherwise the deferred draw samples a freed
-        // (and possibly recycled) texture slot.
-        rlDrawRenderBatchActive();
-        UnloadTexture(texture);
-        UnloadImage(image);
+        // Draw the covered region from the pre-blurred copy of the screenshot.
+        DrawTextureRec(blurred_texture, {min_x, min_y, width, height}, {min_x, min_y}, WHITE);
       }
 
       return this;
@@ -621,6 +690,51 @@ struct State {
     return this;
   }
 
+
+  static constexpr float MARKER_FONT_SIZE = 40;
+
+  State* add_new_marker(int digit, vec2 pos) noexcept {
+    markers.push_back({ to_string(digit), round(pos) });
+    return this;
+  }
+
+  State* append_marker_digit(int digit) noexcept {
+    if (markers.empty()) return this;
+
+    auto& text = markers.back().first;
+    if (text.size() < 2) text += (char)('0' + digit); // capped at 99
+    return this;
+  }
+
+  State* update_last_marker_position(vec2 p) noexcept {
+    if (!markers.empty()) markers.back().second = round(p);
+    return this;
+  }
+
+  // RMB removes the previously placed marker, the one under the cursor stays.
+  State* remove_placed_marker() noexcept {
+    if (markers.size() > 1) markers.erase(markers.end() - 2);
+    return this;
+  }
+
+  // Esc: throw away the marker that follows the cursor.
+  State* drop_current_marker() noexcept {
+    if (!markers.empty()) markers.pop_back();
+    return this;
+  }
+
+  State* draw_markers() noexcept {
+    for (auto& [text, pos] : markers) {
+      const auto size = MeasureTextEx(font, text.c_str(), MARKER_FONT_SIZE, 1);
+      const float radius = max(size.x, size.y) * 0.5f + 10;
+
+      DrawCircleV(pos, radius, MAGENTA);
+      DrawTextEx(font, text.c_str(), { pos.x - size.x/2, pos.y - size.y/2 }, MARKER_FONT_SIZE, 1, BLACK);
+    }
+
+    return this;
+  }
+
   Image render_screenshot_and_close() {
     LOG("Begin load image from texture\n");
 
@@ -707,12 +821,12 @@ struct State {
             { s_.x, height - s_.y }
           );
 
-          auto image = GenImageWhiteNoise(rect.width, rect.height, 0.1);
-          auto texture = LoadTextureFromImage(image);
-          DrawTexture(texture, rect.x, rect.y, MAGENTA);
-          rlDrawRenderBatchActive();
-          UnloadTexture(texture);
-          UnloadImage(image);
+          // Same negative-source-height flip as the full screenshot draw above,
+          // just for the covered region, from the pre-blurred copy.
+          const float wx = min(round(f->x), round(s->x));
+          const float wy = min(round(f->y), round(s->y));
+
+          DrawTextureRec(blurred_texture, {wx, wy, rect.width, -rect.height}, {rect.x, rect.y}, WHITE);
         }
 
         i = 0;
@@ -730,6 +844,19 @@ struct State {
 
     auto exported = LoadImageFromTexture(render_screenshot_texture.texture);
     UnloadRenderTexture(render_screenshot_texture);
+
+    // Markers carry text, and everything drawn inside the render texture above
+    // comes out vertically mirrored (the shapes there are flip-symmetric, glyphs
+    // are not). Draw them CPU-side onto the final upright image instead.
+    for (auto& [text, pos] : markers) {
+      const auto p = pos - screen_first_point;
+      const auto size = MeasureTextEx(font, text.c_str(), MARKER_FONT_SIZE, 1);
+      const float radius = max(size.x, size.y) * 0.5f + 10;
+
+      ImageDrawCircleV(&exported, p, radius, MAGENTA);
+      ImageDrawTextEx(&exported, font, text.c_str(), { p.x - size.x/2, p.y - size.y/2 }, MARKER_FONT_SIZE, 1, BLACK);
+    }
+
     return exported;
   }
 };
@@ -757,7 +884,6 @@ int main(int argc, char** argv) {
   }
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_UNDECORATED);
-  SetTargetFPS(70);
 
 #ifndef DEBUG
   SetTraceLogLevel(LOG_ERROR);
@@ -767,6 +893,11 @@ int main(int argc, char** argv) {
 
   InitWindow(state->swidth(), state->sheight(), "boomer2");
   BeginDrawing(); ClearBackground({0, 0, 0, 0}); EndDrawing();
+
+  // Track the monitor's refresh rate instead of a hardcoded cap; raylib returns
+  // 0 when it cannot tell.
+  const int refresh_rate = GetMonitorRefreshRate(GetCurrentMonitor());
+  SetTargetFPS(refresh_rate > 0 ? refresh_rate : 144);
 
   font = LoadFont_Terminus();
 
@@ -780,6 +911,7 @@ int main(int argc, char** argv) {
     .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
   };
   state->screenshot_texture = LoadTextureFromImage(state->screenshot_image);
+  build_blurred_screenshot(state->screenshot_texture);
 
   state->camera.zoom = 1.0;
 
@@ -821,6 +953,9 @@ int main(int argc, char** argv) {
     }
 
     if (IsKeyPressed(KEY_ESCAPE)) {
+      // Marker in progress still follows the cursor, drop it instead of leaving
+      // it stuck wherever the cursor was.
+      if (state->check_tools(Tools::NUMBER_MARKER)) state->drop_current_marker();
       state->reset_tools();
     }
 
@@ -977,6 +1112,27 @@ int main(int argc, char** argv) {
             if (IsMouseButtonPressed(1)) state->remove_blur_rectangle();
           }
 
+        // Tools::NUMBER_MARKER
+          for (int digit = 0; digit <= 9; digit++) {
+            if (!IsKeyPressed(KEY_ZERO + digit)) continue;
+
+            if (!state->check_tools(Tools::NUMBER_MARKER)) {
+              if (digit == 0) continue; // a marker cannot start with 0
+              state->activate_tools(Tools::NUMBER_MARKER);
+              state->add_new_marker(digit, GetScreenToWorld2D(thisPos, state->camera));
+            } else {
+              state->append_marker_digit(digit);
+            }
+          }
+
+          if (state->check_tools(Tools::NUMBER_MARKER)) {
+            state->update_last_marker_position(GetScreenToWorld2D(thisPos, state->camera));
+
+            // The marker is already in the vector, releasing the tool places it.
+            if (IsMouseButtonPressed(0)) state->deactivate_tools(Tools::NUMBER_MARKER);
+            if (IsMouseButtonPressed(1)) state->remove_placed_marker();
+          }
+
         state
           ->draw_shading()
           ->draw_blur_rectangles()
@@ -984,7 +1140,8 @@ int main(int argc, char** argv) {
           ->draw_selection_box()
           ->draw_crosshairs()
           ->draw_lines()
-          ->draw_arrows();
+          ->draw_arrows()
+          ->draw_markers();
       EndMode2D();
 
       state->draw_color_picker();

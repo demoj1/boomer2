@@ -40,9 +40,10 @@ enum Tools {
   ARROW     = 1 << 3,
   BLUR_RECTANGLE = 1 << 4,
   COLOR_PICKER = 1 << 5,
+  NUMBER_MARKER = 1 << 6,
 };
 
-static int count_tools = 6;
+static int count_tools = 7;
 static Font font;
 
 using vec2 = Vector2;

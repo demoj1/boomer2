@@ -29,11 +29,16 @@ Tools:
     * Rectangle (hotkey R)  
     * Arrow (hotkey A)
     * Clip window for selection box (hotkey Z)
-    * Restricted area (hotkey B)
+    * Blur rectangle (hotkey B): hides an area behind a strong gaussian blur of
+      its content (blurred on the GPU once at startup, so dragging it stays fast)
     * Color picker (hotkey X)
+    * Numbered marker (hotkeys 1-9): press digits to type a number up to 99, a
+      circle with it follows the cursor; left mouse places it, right mouse (while
+      active) removes the previously placed one, Esc cancels
 
 Features:
   * Good for screencast (zoom, crosshair)
+  * Runs at the monitor's refresh rate (144Hz and up included)
   * Simple screenshot annotation tool (without any bullshit steps for save screenshot, just run, select, press C or Enter and your screenshot copy into clipboard)
   * No UI
 
