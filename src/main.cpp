@@ -804,7 +804,9 @@ int main(int argc, char** argv) {
         state->camera.zoom += std::logf(state->camera.zoom+1.0)*(wheel < 0 ? -1 : 1);
       }
 
-      if (state->camera.zoom <= 0.8f) state->camera.zoom = 0.8f;
+      // Below the old 0.8 bound, a multi-monitor capture is a bounding box of the
+      // whole layout and does not quite fit on a single screen.
+      if (state->camera.zoom <= 0.6f) state->camera.zoom = 0.6f;
       if (state->camera.zoom >= 20) state->camera.zoom = 20.0f;
     }
 

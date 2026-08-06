@@ -3,6 +3,14 @@ Zoom/Screenshot tool for linux, dependencies: libX11, raylib, xclip
 Wayland (X11 doesn't work there): build with `make wayland`. Captures the screen
 via `grim` and copies to the clipboard via `wl-copy`, so it also needs `grim` and
 `wl-clipboard` installed. Area selection still happens inside the app window.
+Building it additionally needs `wayland-scanner` and `wayland-protocols`.
+
+With more than one monitor each output is captured separately and composed onto a
+canvas in the compositor's logical coordinates, so the capture matches how the
+monitors are physically arranged and an unscaled monitor stays pixel exact. A bare
+`grim` would instead render the whole layout at the largest scale factor in use,
+blurring every lower-scale monitor. The layout is read from the compositor over
+`xdg-output`; if that is unavailable it falls back to a single full `grim` capture.
 
 Left mouse for drag&drop  
 Mouse wheel for zoom in/out  

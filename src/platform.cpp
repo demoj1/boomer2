@@ -14,6 +14,13 @@
 #ifdef WAYLAND_SCREENSHOT
   #include <raylib.h>
   #include <cstring>
+  #include <cstdio>
+  #include <cctype>
+  #include <string>
+  #include <vector>
+  #include <algorithm>
+  #include <wayland-client.h>
+  #include "xdg-output-unstable-v1-client-protocol.h"
 #endif
 
 #pragma pack(1)
@@ -197,25 +204,222 @@ struct _color { u_char r, g, b; };
 #ifdef WAYLAND_SCREENSHOT
   static const char* GRIM_TMP_PATH = "/tmp/__boomer_grab.png";
 
-  // Wayland has no portable way to read the framebuffer or per-window geometry,
-  // so we shell out to `grim` once, capture the whole screen into a temp PNG and
-  // decode it with raylib. The selection of an area happens later inside our own
-  // window. The capture is cached because get_screen_size() and take_screenshot()
-  // both need it; the first call happens on the main thread (see main.cpp) before
-  // the screenshot worker thread starts, so there is no data race on the static.
-  static const Image& grab_screen() noexcept {
-    static Image image = {};
-    if (image.data != nullptr) return image;
+  // One monitor as the compositor lays it out: logical position/size, i.e. what
+  // the user actually sees, already scaled and rotated.
+  struct output_info {
+    wl_output* output = nullptr;
+    zxdg_output_v1* xdg = nullptr;
+    std::string name;
+    int32_t x = 0, y = 0, w = 0, h = 0;
+  };
 
+  static std::vector<output_info> wl_outputs;
+  static zxdg_output_manager_v1* wl_xdg_output_manager = nullptr;
+
+  static void on_logical_position(void* data, zxdg_output_v1*, int32_t x, int32_t y) {
+    auto* o = (output_info*)data;
+    o->x = x;
+    o->y = y;
+  }
+
+  static void on_logical_size(void* data, zxdg_output_v1*, int32_t w, int32_t h) {
+    auto* o = (output_info*)data;
+    o->w = w;
+    o->h = h;
+  }
+
+  static void on_output_name(void* data, zxdg_output_v1*, const char* name) {
+    ((output_info*)data)->name = name;
+  }
+
+  static void on_output_done(void*, zxdg_output_v1*) {}
+  static void on_output_description(void*, zxdg_output_v1*, const char*) {}
+
+  static const zxdg_output_v1_listener xdg_output_listener = {
+    .logical_position = on_logical_position,
+    .logical_size     = on_logical_size,
+    .done             = on_output_done,
+    .name             = on_output_name,
+    .description      = on_output_description,
+  };
+
+  static void on_registry_global(void*, wl_registry* registry, uint32_t id, const char* interface, uint32_t version) {
+    if (strcmp(interface, wl_output_interface.name) == 0) {
+      auto* out = (wl_output*)wl_registry_bind(registry, id, &wl_output_interface, 1);
+      wl_outputs.push_back(output_info{ .output = out });
+    } else if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0) {
+      // Version 2 is the minimum that reports output names, which is what
+      // `grim -o` needs. Cap at 3, everything past it is irrelevant here.
+      wl_xdg_output_manager = (zxdg_output_manager_v1*)wl_registry_bind(
+        registry, id, &zxdg_output_manager_v1_interface, version < 3 ? version : 3);
+    }
+  }
+
+  static void on_registry_global_remove(void*, wl_registry*, uint32_t) {}
+
+  static const wl_registry_listener registry_listener = {
+    .global        = on_registry_global,
+    .global_remove = on_registry_global_remove,
+  };
+
+  // Ask the compositor for the monitor layout via zxdg_output_manager_v1. Returns
+  // an empty vector when anything is missing, callers fall back to a plain `grim`.
+  static std::vector<output_info> query_outputs() noexcept {
+    wl_outputs.clear();
+    wl_xdg_output_manager = nullptr;
+
+    wl_display* display = wl_display_connect(nullptr);
+    if (!display) {
+      ERR("wl_display_connect failed (not running under Wayland?)\n");
+      return {};
+    }
+
+    wl_registry* registry = wl_display_get_registry(display);
+    wl_registry_add_listener(registry, &registry_listener, nullptr);
+    // First roundtrip collects the globals: every wl_output and the xdg manager.
+    wl_display_roundtrip(display);
+
+    std::vector<output_info> result;
+
+    if (wl_xdg_output_manager && !wl_outputs.empty()) {
+      // wl_outputs is done growing, so pointers into it stay valid as listener data.
+      for (auto& o : wl_outputs) {
+        o.xdg = zxdg_output_manager_v1_get_xdg_output(wl_xdg_output_manager, o.output);
+        zxdg_output_v1_add_listener(o.xdg, &xdg_output_listener, &o);
+      }
+      // Second roundtrip delivers name/logical_position/logical_size for each.
+      wl_display_roundtrip(display);
+
+      for (auto& o : wl_outputs)
+        if (!o.name.empty() && o.w > 0 && o.h > 0) result.push_back(o);
+    } else {
+      ERR("compositor has no zxdg_output_manager_v1, falling back to a single grim capture\n");
+    }
+
+    for (auto& o : wl_outputs) {
+      if (o.xdg) zxdg_output_v1_destroy(o.xdg);
+      wl_output_destroy(o.output);
+    }
+    if (wl_xdg_output_manager) zxdg_output_manager_v1_destroy(wl_xdg_output_manager);
+    wl_registry_destroy(registry);
+    wl_display_disconnect(display);
+
+    wl_outputs.clear();
+    wl_xdg_output_manager = nullptr;
+
+    return result;
+  }
+
+  // Output names are compositor defined but the protocol limits them to
+  // alphanumerics and dashes. Anything else would end up in a shell command.
+  static bool is_safe_output_name(const std::string& name) noexcept {
+    if (name.empty()) return false;
+    for (unsigned char c : name)
+      if (!isalnum(c) && c != '-' && c != '_') return false;
+    return true;
+  }
+
+  // Copy src over dst at (dx, dy). Both are tightly packed RGB8, so this is a
+  // per-row memcpy; raylib's ImageDraw would go pixel by pixel and blend.
+  static void blit_rgb8(Image& dst, const Image& src, int dx, int dy) noexcept {
+    for (int row = 0; row < src.height; ++row) {
+      const int ty = dy + row;
+      if (ty < 0 || ty >= dst.height) continue;
+
+      int tx = dx, sx = 0, width = src.width;
+      if (tx < 0) { sx = -tx; width += tx; tx = 0; }
+      if (tx + width > dst.width) width = dst.width - tx;
+      if (width <= 0) continue;
+
+      memcpy((u_char*)dst.data + ((size_t)ty * dst.width + tx) * sizeof(_color),
+             (u_char*)src.data + ((size_t)row * src.width + sx) * sizeof(_color),
+             (size_t)width * sizeof(_color));
+    }
+  }
+
+  static Image grab_single_screen() noexcept {
     if (system("grim " "/tmp/__boomer_grab.png") != 0) {
       ERR("grim failed (is it installed and are you running under Wayland?)");
       asm("int $3");
     }
 
-    image = LoadImage(GRIM_TMP_PATH);
+    Image image = LoadImage(GRIM_TMP_PATH);
     // Match the X11 path: main.cpp expects a tightly packed RGB8 buffer.
     ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
     return image;
+  }
+
+  // Wayland has no portable way to read the framebuffer or per-window geometry,
+  // so we shell out to `grim` and decode the result with raylib. The selection of
+  // an area happens later inside our own window.
+  //
+  // With more than one monitor a bare `grim` renders the whole layout at the
+  // largest scale factor in use, which blurs every lower-scale monitor and leaves
+  // garbage in the gaps between them. Instead we capture each output on its own
+  // and compose them onto a canvas in logical coordinates, so the result matches
+  // the physical arrangement and an unscaled monitor stays pixel exact.
+  //
+  // The capture is cached because get_screen_size() and take_screenshot() both
+  // need it; the first call happens on the main thread (see main.cpp) before the
+  // screenshot worker thread starts, so there is no data race on the static.
+  static const Image& grab_screen() noexcept {
+    static Image canvas = {};
+    static bool captured = false;
+    if (captured) return canvas;
+    captured = true;
+
+    auto outputs = query_outputs();
+
+    if (outputs.size() < 2) {
+      canvas = grab_single_screen();
+      return canvas;
+    }
+
+    int32_t min_x = outputs[0].x, min_y = outputs[0].y;
+    int32_t max_x = outputs[0].x + outputs[0].w, max_y = outputs[0].y + outputs[0].h;
+    for (const auto& o : outputs) {
+      min_x = std::min(min_x, o.x);
+      min_y = std::min(min_y, o.y);
+      max_x = std::max(max_x, o.x + o.w);
+      max_y = std::max(max_y, o.y + o.h);
+    }
+
+    canvas = GenImageColor(max_x - min_x, max_y - min_y, BLACK);
+    ImageFormat(&canvas, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+
+    for (const auto& o : outputs) {
+      if (!is_safe_output_name(o.name)) {
+        ERR("skipping output with a suspicious name\n");
+        continue;
+      }
+
+      char path[128];
+      char cmd[256];
+      snprintf(path, sizeof(path), "/tmp/__boomer_grab_%s.png", o.name.c_str());
+      snprintf(cmd, sizeof(cmd), "grim -o %s %s", o.name.c_str(), path);
+
+      if (system(cmd) != 0) {
+        ERR("grim failed for output %s\n", o.name.c_str());
+        continue;
+      }
+
+      Image part = LoadImage(path);
+      remove(path);
+      if (part.data == nullptr) {
+        ERR("could not decode the capture of output %s\n", o.name.c_str());
+        continue;
+      }
+
+      ImageFormat(&part, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+      // grim gives back the native mode, scale it down to the logical size the
+      // compositor placed the monitor at.
+      if (part.width != o.w || part.height != o.h) ImageResize(&part, o.w, o.h);
+
+      blit_rgb8(canvas, part, o.x - min_x, o.y - min_y);
+      UnloadImage(part);
+    }
+
+    return canvas;
   }
 
   std::pair<int16_t, int16_t> get_screen_size() noexcept {

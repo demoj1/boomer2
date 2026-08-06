@@ -1,5 +1,6 @@
 OUT_NAME=boomer2
 
+CC=clang
 CXX=clang++
 STD=-std=c++2b
 WARNINGS=-Wall -Wextra -Wpedantic -Wno-unused-command-line-argument -Wno-missing-field-initializers -Wno-gnu-zero-variadic-macro-arguments -Wno-c99-extensions
@@ -10,6 +11,13 @@ CXXFLAGS=$(WARNINGS) $(CXXCOMMONFLAGS) -march=native -Ofast
 CMD=$(CXX) $(STD) $(CXXFLAGS) $(LIBS)
 
 OBJ_PREFIX=objs
+
+# Generated Wayland protocol glue (xdg-output, needed to read the monitor layout).
+GEN_DIR=gen
+WL_PROTO_DIR=$(shell pkg-config --variable=pkgdatadir wayland-protocols)
+XDG_OUTPUT_XML=$(WL_PROTO_DIR)/unstable/xdg-output/xdg-output-unstable-v1.xml
+# Empty for the X11 build, the `wayland` target overrides it.
+GEN_OBJS=
 
 OUT_DIR=./output
 OUT_POSTFIX=release
@@ -37,10 +45,25 @@ bench: cleanup exe
 	hyperfine --warmup 1 --export-orgmode bench/`date --iso-8601=seconds | sed 's/:/_/g'`.org $(OUT)
 
 # Wayland build: capture the screen via `grim` instead of XCB, copy via wl-copy.
-# Requires grim and wl-clipboard at runtime.
-wayland: export CXXFLAGS=$(WARNINGS) -DWAYLAND_SCREENSHOT -flto -g -march=native -Ofast
+# Requires grim and wl-clipboard at runtime, wayland-scanner and wayland-protocols
+# to build. Multi-monitor layout comes from the compositor over xdg-output.
+wayland: export CXXFLAGS=$(WARNINGS) -DWAYLAND_SCREENSHOT -I$(GEN_DIR) -flto -g -march=native -Ofast
+wayland: export LIBS=-lraylib -lwayland-client
 wayland: export OUT_POSTFIX=wayland
-wayland: cleanup exe
+wayland: export GEN_OBJS=$(OBJ_PREFIX)/xdg-output-protocol.o
+wayland: cleanup wl-proto exe
+
+$(GEN_DIR)/xdg-output-unstable-v1-client-protocol.h: $(XDG_OUTPUT_XML)
+	mkdir -p $(GEN_DIR)
+	wayland-scanner client-header $< $@
+
+$(GEN_DIR)/xdg-output-unstable-v1-protocol.c: $(XDG_OUTPUT_XML)
+	mkdir -p $(GEN_DIR)
+	wayland-scanner private-code $< $@
+
+wl-proto: $(GEN_DIR)/xdg-output-unstable-v1-client-protocol.h $(GEN_DIR)/xdg-output-unstable-v1-protocol.c
+	mkdir -p $(OBJ_PREFIX)
+	$(CC) -O2 -c $(GEN_DIR)/xdg-output-unstable-v1-protocol.c -o $(OBJ_PREFIX)/xdg-output-protocol.o
 
 cleanup:
 	rm -rf ./$(OBJ_PREFIX)/*
@@ -48,4 +71,4 @@ cleanup:
 exe: $(OBJECTS) Makefile
 	$(CXX) $(STD) $(CXXFLAGS) -c src/platform.cpp -o $(OBJ_PREFIX)/platform.o
 	$(CXX) $(STD) $(CXXFLAGS) -c src/main.cpp -o $(OBJ_PREFIX)/main.o
-	$(CMD) $(CXXFLAGS) objs/main.o objs/platform.o -o $(OUT)
+	$(CMD) $(CXXFLAGS) objs/main.o objs/platform.o $(GEN_OBJS) -o $(OUT)
