@@ -691,7 +691,9 @@ struct State {
   }
 
 
-  static constexpr float MARKER_FONT_SIZE = 40;
+  // Exactly the embedded Terminus baseSize: it is a bitmap font, and any
+  // non-integer scale doubles some pixel rows but not others, which looks awful.
+  static constexpr float MARKER_FONT_SIZE = 32;
 
   State* add_new_marker(int digit, vec2 pos) noexcept {
     markers.push_back({ to_string(digit), round(pos) });
@@ -848,13 +850,31 @@ struct State {
     // Markers carry text, and everything drawn inside the render texture above
     // comes out vertically mirrored (the shapes there are flip-symmetric, glyphs
     // are not). Draw them CPU-side onto the final upright image instead.
-    for (auto& [text, pos] : markers) {
-      const auto p = pos - screen_first_point;
-      const auto size = MeasureTextEx(font, text.c_str(), MARKER_FONT_SIZE, 1);
-      const float radius = max(size.x, size.y) * 0.5f + 10;
+    if (!markers.empty()) {
+      // The embedded Terminus font is GPU-only ("No glyphs.image data provided"
+      // in font.h), and ImageDrawTextEx silently draws nothing without CPU-side
+      // glyph images. Rebuild them once from the atlas texture.
+      Font cpu_font = font;
+      cpu_font.glyphs = new GlyphInfo[font.glyphCount];
 
-      ImageDrawCircleV(&exported, p, radius, MAGENTA);
-      ImageDrawTextEx(&exported, font, text.c_str(), { p.x - size.x/2, p.y - size.y/2 }, MARKER_FONT_SIZE, 1, BLACK);
+      auto atlas = LoadImageFromTexture(font.texture);
+      for (int g = 0; g < font.glyphCount; g++) {
+        cpu_font.glyphs[g] = font.glyphs[g];
+        cpu_font.glyphs[g].image = ImageFromImage(atlas, font.recs[g]);
+      }
+      UnloadImage(atlas);
+
+      for (auto& [text, pos] : markers) {
+        const auto p = pos - screen_first_point;
+        const auto size = MeasureTextEx(font, text.c_str(), MARKER_FONT_SIZE, 1);
+        const float radius = max(size.x, size.y) * 0.5f + 10;
+
+        ImageDrawCircleV(&exported, p, radius, MAGENTA);
+        ImageDrawTextEx(&exported, cpu_font, text.c_str(), { p.x - size.x/2, p.y - size.y/2 }, MARKER_FONT_SIZE, 1, BLACK);
+      }
+
+      for (int g = 0; g < font.glyphCount; g++) UnloadImage(cpu_font.glyphs[g].image);
+      delete[] cpu_font.glyphs;
     }
 
     return exported;
