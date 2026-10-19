@@ -28,8 +28,17 @@ all: exe
 run: exe
 	$(OUT)
 
-install: exe
-	cp $(OUT) ~/.local/bin/@$(OUT_NAME)
+.PHONY: install install-x11 test
+
+# The default desktop is Wayland; install the same backend used by the hotkey.
+install: wayland
+	install -Dm755 $(OUT_DIR)/$(OUT_NAME)-wayland "$(HOME)/.local/bin/@$(OUT_NAME)"
+
+install-x11: exe
+	install -Dm755 $(OUT) "$(HOME)/.local/bin/@$(OUT_NAME)"
+
+test:
+	./tests/run.sh
 
 debug: export CXXFLAGS=$(WARNINGS) $(SANITIZERS) $(CXXCOMMONFLAGS) -DLLVM_ENABLE_RUNTIMES=compiler-rt -fno-omit-frame-pointer -g -DDEBUG
 debug: export OUT_POSTFIX=debug
@@ -69,6 +78,7 @@ cleanup:
 	rm -rf ./$(OBJ_PREFIX)/*
 
 exe: $(OBJECTS) Makefile
+	mkdir -p $(OBJ_PREFIX) $(OUT_DIR)
 	$(CXX) $(STD) $(CXXFLAGS) -c src/platform.cpp -o $(OBJ_PREFIX)/platform.o
 	$(CXX) $(STD) $(CXXFLAGS) -c src/main.cpp -o $(OBJ_PREFIX)/main.o
 	$(CMD) $(CXXFLAGS) objs/main.o objs/platform.o $(GEN_OBJS) -o $(OUT)

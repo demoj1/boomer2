@@ -19,12 +19,14 @@
   #include <string>
   #include <vector>
   #include <algorithm>
+  #include <array>
+  #include <limits>
   #include <wayland-client.h>
   #include "xdg-output-unstable-v1-client-protocol.h"
 #endif
 
-#pragma pack(1)
 struct _color { u_char r, g, b; };
+static_assert(sizeof(_color) == 3);
 
 #ifdef XCB_SCREENSHOT
   class xcb_conn {
@@ -202,8 +204,6 @@ struct _color { u_char r, g, b; };
 #endif
 
 #ifdef WAYLAND_SCREENSHOT
-  static const char* GRIM_TMP_PATH = "/tmp/__boomer_grab.png";
-
   // One monitor as the compositor lays it out: logical position/size, i.e. what
   // the user actually sees, already scaled and rotated.
   struct output_info {
@@ -337,15 +337,29 @@ struct _color { u_char r, g, b; };
     }
   }
 
-  static Image grab_single_screen() noexcept {
-    if (system("grim " "/tmp/__boomer_grab.png") != 0) {
-      ERR("grim failed (is it installed and are you running under Wayland?)");
-      asm("int $3");
-    }
+  static Image grab_output(const std::string& name = {}) noexcept {
+    if (!name.empty() && !is_safe_output_name(name)) return {};
 
-    Image image = LoadImage(GRIM_TMP_PATH);
-    // Match the X11 path: main.cpp expects a tightly packed RGB8 buffer.
-    ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
+    // This PNG is immediately decoded, so compression wastes startup time.
+    // A pipe also avoids shared temporary files when two instances overlap.
+    std::string command = "grim -l 0";
+    if (!name.empty()) command += " -o " + name;
+    command += " -";
+    FILE* pipe = popen(command.c_str(), "r");
+    if (!pipe) return {};
+
+    std::vector<unsigned char> bytes;
+    std::array<unsigned char, 65536> buffer;
+    size_t count;
+    while ((count = fread(buffer.data(), 1, buffer.size(), pipe)) > 0)
+      bytes.insert(bytes.end(), buffer.data(), buffer.data() + count);
+    const bool read_failed = ferror(pipe);
+    const int status = pclose(pipe);
+    if (read_failed || status != 0 || bytes.empty() ||
+        bytes.size() > (size_t)std::numeric_limits<int>::max()) return {};
+
+    Image image = LoadImageFromMemory(".png", bytes.data(), (int)bytes.size());
+    if (image.data) ImageFormat(&image, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
     return image;
   }
 
@@ -371,7 +385,11 @@ struct _color { u_char r, g, b; };
     auto outputs = query_outputs();
 
     if (outputs.size() < 2) {
-      canvas = grab_single_screen();
+      canvas = grab_output();
+      if (!canvas.data) {
+        ERR("grim failed or returned an invalid image\n");
+        std::exit(EXIT_FAILURE);
+      }
       return canvas;
     }
 
@@ -393,24 +411,12 @@ struct _color { u_char r, g, b; };
         continue;
       }
 
-      char path[128];
-      char cmd[256];
-      snprintf(path, sizeof(path), "/tmp/__boomer_grab_%s.png", o.name.c_str());
-      snprintf(cmd, sizeof(cmd), "grim -o %s %s", o.name.c_str(), path);
-
-      if (system(cmd) != 0) {
-        ERR("grim failed for output %s\n", o.name.c_str());
-        continue;
-      }
-
-      Image part = LoadImage(path);
-      remove(path);
+      Image part = grab_output(o.name);
       if (part.data == nullptr) {
         ERR("could not decode the capture of output %s\n", o.name.c_str());
         continue;
       }
 
-      ImageFormat(&part, PIXELFORMAT_UNCOMPRESSED_R8G8B8);
       // grim gives back the native mode, scale it down to the logical size the
       // compositor placed the monitor at.
       if (part.width != o.w || part.height != o.h) ImageResize(&part, o.w, o.h);

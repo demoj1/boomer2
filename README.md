@@ -5,6 +5,19 @@ via `grim` and copies to the clipboard via `wl-copy`, so it also needs `grim` an
 `wl-clipboard` installed. Area selection still happens inside the app window.
 Building it additionally needs `wayland-scanner` and `wayland-protocols`.
 
+`make install` builds the Wayland version and installs it as
+`~/.local/bin/@boomer2`. For an X11 desktop, use `make install-x11`.
+
+The selection's average color is cached until its bounds change. Blur is prepared
+once, on the first use of B, so ordinary screenshots skip that GPU work; the first
+use of B can take a moment on large captures. Captures stream uncompressed PNG
+from `grim`, without writing intermediate screenshot files.
+
+Run `make test` for selection and capture regression checks (the capture test
+uses a fake `grim`, without reading the desktop). To also test the blur shader
+with a virtual display, run:
+`xvfb-run -a env BOOMER_TEST_GPU=1 LIBGL_ALWAYS_SOFTWARE=1 __GLX_VENDOR_LIBRARY_NAME=mesa ./tests/run.sh`.
+
 With more than one monitor each output is captured separately and composed onto a
 canvas in the compositor's logical coordinates, so the capture matches how the
 monitors are physically arranged and an unscaled monitor stays pixel exact. A bare

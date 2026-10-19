@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -16,11 +17,12 @@
 
 using namespace std;
 
-// A fully blurred copy of the screenshot, prepared once at startup; the blur
+// A fully blurred copy of the screenshot, prepared on first use of B; the blur
 // rectangles just draw regions of it. Built on the GPU with a separable
 // Gaussian (see build_blurred_screenshot), so there is zero per-frame cost and
 // none of the ghosting a sparse single-pass kernel produces.
 static Texture2D blurred_texture;
+static RenderTexture2D blurred_render_target;
 
 // One 1D Gaussian pass, sigma 6, radius 12. Ran alternately in the horizontal
 // and vertical direction over several iterations.
@@ -59,8 +61,6 @@ static void build_blurred_screenshot(Texture2D screenshot) noexcept {
   const float texel_size[2] = { 1.0f / screenshot.width, 1.0f / screenshot.height };
   SetShaderValue(shader, GetShaderLocation(shader, "texelSize"), texel_size, SHADER_UNIFORM_VEC2);
 
-  // Deliberately leaked: one of them holds blurred_texture for the app's
-  // lifetime, and the process is short-lived anyway.
   auto ping = LoadRenderTexture(screenshot.width, screenshot.height);
   auto pong = LoadRenderTexture(screenshot.width, screenshot.height);
 
@@ -82,6 +82,9 @@ static void build_blurred_screenshot(Texture2D screenshot) noexcept {
   }
 
   blurred_texture = src;
+  blurred_render_target = src.id == ping.texture.id ? ping : pong;
+  // dst now points at the spare target, not the final blurred image.
+  UnloadRenderTexture(*dst);
   // Smooth when zoomed in, unlike the point-sampled sharp screenshot.
   SetTextureFilter(blurred_texture, TEXTURE_FILTER_BILINEAR);
 
@@ -172,6 +175,38 @@ struct State {
 
   optional<vec2> min_point = nullopt;
   optional<vec2> max_point = nullopt;
+
+  optional<pair<vec2, vec2>> average_color_bounds;
+  Color average_color = {};
+
+  // The screenshot is immutable. Recompute only when the selection changes,
+  // reading adjacent RGB8 pixels instead of walking columns every frame.
+  Color selection_average_color() noexcept {
+    if (!min_point || !max_point) return {};
+    const auto bounds = pair{*min_point, *max_point};
+    if (average_color_bounds == bounds) return average_color;
+    average_color_bounds = bounds;
+
+    const int x0 = clamp((int)min_point->x, 0, screenshot_image.width);
+    const int y0 = clamp((int)min_point->y, 0, screenshot_image.height);
+    const int x1 = clamp((int)max_point->x, 0, screenshot_image.width);
+    const int y1 = clamp((int)max_point->y, 0, screenshot_image.height);
+    average_color = {};
+    if (x1 <= x0 || y1 <= y0) return average_color;
+
+    uint64_t r = 0, g = 0, b = 0;
+    for (int y = y0; y < y1; ++y) {
+      const auto* pixel = screenshot_data + ((size_t)y * screenshot_image.width + x0) * 3;
+      for (int x = x0; x < x1; ++x, pixel += 3) {
+        r += pixel[0];
+        g += pixel[1];
+        b += pixel[2];
+      }
+    }
+    const uint64_t count = (uint64_t)(x1 - x0) * (y1 - y0);
+    average_color = {(uint8_t)(r/count), (uint8_t)(g/count), (uint8_t)(b/count), 255};
+    return average_color;
+  }
 
   bool select_area_in_progress = false;
 
@@ -279,7 +314,7 @@ struct State {
 
   State* draw_selection_box() noexcept {
     if (!min_point.has_value() || !max_point.has_value()) return this;
-    if (*max_point == *min_point) return this;
+    if (max_point->x <= min_point->x || max_point->y <= min_point->y) return this;
 
     static char text[250];
     snprintf(
@@ -316,32 +351,10 @@ struct State {
 
       for (int i = 0; i < 8; i += 2) DrawLineEx( points[i], points[i + 1], 1 / camera.zoom, BLUE );
     } else {
-      int N = 0;
-      float avg_r = 0;
-      float avg_g = 0;
-      float avg_b = 0;
-
-      for (int x = min_point->x; x < max_point->x; x++) {
-        for (int y = min_point->y; y < max_point->y; y++) {
-          const auto color = GetImageColor(screenshot_image, x, y);
-
-          avg_r += color.r;
-          avg_g += color.g;
-          avg_b += color.b;
-
-          N++;
-        }
-      }
-
       draw_color_picker({
           rectangle.x + rectangle.width - (rectangle.width/2),
           rectangle.y + rectangle.height - 10
-        }, (Color){
-          .r=(uint8_t)(avg_r/N),
-          .g=(uint8_t)(avg_g/N),
-          .b=(uint8_t)(avg_b/N),
-          .a=255
-        });
+        }, selection_average_color());
     }
 
     return this;
@@ -615,7 +628,7 @@ struct State {
   }
 
   State* remove_blur_rectangle() noexcept {
-    if (blur_rectangles.size() > 0) rectangles.pop_back();
+    if (blur_rectangles.size() > 0) blur_rectangles.pop_back();
     return this;
   }
 
@@ -884,7 +897,7 @@ struct State {
 static State* state = new State{};
 std::thread export_thread;
 
-int main(int argc, char** argv) {
+int main(int argc, char**) {
   std::thread load_screenshot_thread;
 
   if (argc > 1) {
@@ -931,7 +944,6 @@ int main(int argc, char** argv) {
     .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8,
   };
   state->screenshot_texture = LoadTextureFromImage(state->screenshot_image);
-  build_blurred_screenshot(state->screenshot_texture);
 
   state->camera.zoom = 1.0;
 
@@ -939,6 +951,10 @@ int main(int argc, char** argv) {
 
   SetMouseCursor(MOUSE_CURSOR_CROSSHAIR);
   while (!WindowShouldClose()) {
+    // Do GPU preprocessing outside BeginDrawing/BeginMode2D, only if needed.
+    if (IsKeyDown(KEY_B) && blurred_texture.id == 0)
+      build_blurred_screenshot(state->screenshot_texture);
+
     auto thisPos = GetMousePosition();
     auto wheel = GetMouseWheelMove();
 
@@ -1174,9 +1190,11 @@ int main(int argc, char** argv) {
   }
 
 close:
+  if (blurred_render_target.id != 0) UnloadRenderTexture(blurred_render_target);
   UnloadTexture(state->screenshot_texture);
   delete[] state->screenshot_data;
   CloseWindow();
   if (export_thread.joinable()) export_thread.join();
   if (load_screenshot_thread.joinable()) load_screenshot_thread.join();
+  return 0;
 }
